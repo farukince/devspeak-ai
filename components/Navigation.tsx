@@ -63,8 +63,13 @@ export default function Navigation() {
 
   const handleLogout = async () => {
     try {
-      await signOut();
+      await signOut({ global: true });
       setUser(null);
+      // Clear any cached data
+      if (typeof window !== 'undefined') {
+        window.localStorage.clear();
+        window.sessionStorage.clear();
+      }
       router.push('/');
       router.refresh();
     } catch (error) {

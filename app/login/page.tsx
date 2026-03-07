@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { signIn, signUp, signInWithRedirect, confirmSignUp } from 'aws-amplify/auth';
+import { signIn, signUp, signInWithRedirect, confirmSignUp, signOut, getCurrentUser } from 'aws-amplify/auth';
 import { Amplify } from 'aws-amplify';
 import { awsConfig } from '@/lib/awsConfig';
 
@@ -25,12 +25,15 @@ function AuthContent() {
   const [englishLevel, setEnglishLevel] = useState('Intermediate');
 
   const [loading, setLoading] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
 
   useEffect(() => {
+    checkExistingAuth();
+    
     const errorMsg = searchParams.get('error');
     const errorDescription = searchParams.get('error_description');
     if (errorMsg) {
@@ -38,12 +41,32 @@ function AuthContent() {
     }
   }, [searchParams]);
 
+  const checkExistingAuth = async () => {
+    try {
+      await getCurrentUser();
+      // User is already authenticated, redirect to dashboard
+      router.push('/dashboard');
+    } catch (error) {
+      // User is not authenticated, stay on login page
+      setCheckingAuth(false);
+    }
+  };
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
+      // First, check if user is already signed in and sign them out
+      try {
+        await getCurrentUser();
+        // User is already signed in, sign them out first
+        await signOut();
+      } catch (error) {
+        // User is not signed in, continue with sign in
+      }
+
       const { isSignedIn } = await signIn({
         username: email,
         password,
@@ -60,6 +83,17 @@ function AuthContent() {
       setLoading(false);
     }
   };
+
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-warm-white dark:bg-background-dark">
+        <div className="text-center">
+          <div className="size-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-text-secondary">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
