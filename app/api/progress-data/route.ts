@@ -1,33 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAuthSession } from 'aws-amplify/auth/server';
-import { runWithAmplifyServerContext } from '@aws-amplify/adapter-nextjs';
 import { getUserPracticeSessions } from '@/lib/dynamoDBClient';
 import { startOfDay } from 'date-fns';
 
 export async function GET(request: NextRequest) {
   try {
-    // 1. Authenticate user with Cognito
-    const authenticated = await runWithAmplifyServerContext({
-      nextServerContext: { request },
-      operation: async (contextSpec) => {
-        try {
-          const session = await fetchAuthSession(contextSpec);
-          return session;
-        } catch (error) {
-          return null;
-        }
-      },
-    });
-
-    if (!authenticated || !authenticated.tokens) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Extract user ID from Cognito token
-    const userId = authenticated.tokens.idToken?.payload.sub as string;
+    // Get userId from query params
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get('userId');
 
     if (!userId) {
-      return NextResponse.json({ error: 'Invalid user session' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized - userId required' }, { status: 401 });
     }
 
     // 2. Get all practice sessions from DynamoDB
@@ -96,7 +78,7 @@ export async function GET(request: NextRequest) {
     sessions.forEach(session => {
       if (session.scores) {
         Object.keys(session.scores).forEach(key => {
-          if (key !== 'overall') {
+          if (key !== 'overall' && session.scores) {
             if (!allScores[key]) allScores[key] = [];
             allScores[key].push(session.scores[key]);
           }

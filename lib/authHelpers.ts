@@ -1,6 +1,7 @@
 import { fetchAuthSession, fetchUserAttributes } from 'aws-amplify/auth';
 
 export interface UserData {
+  userId: string;
   email?: string;
   given_name?: string;
   family_name?: string;
@@ -16,8 +17,11 @@ export async function getCurrentUser(): Promise<UserData | null> {
       return null;
     }
 
+    const userId = session.tokens.idToken?.payload.sub as string;
     const attributes = await fetchUserAttributes();
+    
     return {
+      userId,
       email: attributes.email,
       given_name: attributes.given_name,
       family_name: attributes.family_name,

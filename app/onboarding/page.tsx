@@ -64,10 +64,10 @@ export default function OnboardingPage() {
         // Create new profile
         await createUserProfile({
           userId: user.userId,
-          email: user.signInDetails?.loginId || '',
+          email: user.email || '',
           firstName: user.given_name,
           lastName: user.family_name,
-          fullName: `${user.given_name} ${user.family_name}`,
+          fullName: `${user.given_name || ''} ${user.family_name || ''}`.trim(),
           jobTitle,
           englishLevel,
           onboardingCompleted: true,

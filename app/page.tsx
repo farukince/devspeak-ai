@@ -1,7 +1,40 @@
+'use client';
+
 import Link from "next/link";
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { getCurrentUser } from 'aws-amplify/auth';
 
 export default function Home() {
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  async function checkAuthStatus() {
+    try {
+      await getCurrentUser();
+      // User is logged in, redirect to dashboard
+      router.push('/dashboard');
+    } catch (error) {
+      // User is not logged in, stay on landing page
+      setIsLoading(false);
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-warm-white dark:bg-background-dark">
+        <div className="text-center">
+          <div className="size-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-text-secondary">Loading...</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="bg-warm-white dark:bg-background-dark font-display text-foreground transition-colors duration-200 min-h-screen flex flex-col">
       {/* Navigation */}
