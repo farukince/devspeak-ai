@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Settings &amp; Preferences - DevSpeak AI</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#137fec",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#101922",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .sidebar-item-active {
+            background-color: rgba(19, 127, 236, 0.15);
+            color: #137fec;
+            border-right: 3px solid #137fec;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #283039;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen">
+<!-- Top Navigation Bar -->
+<header class="sticky top-0 z-50 w-full border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-background-dark/80 backdrop-blur-md">
+<div class="flex items-center justify-between px-6 py-3">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-2.5">
+<div class="bg-primary p-1.5 rounded-lg text-white">
+<span class="material-symbols-outlined block text-xl">terminal</span>
+</div>
+<h2 class="text-lg font-bold tracking-tight">DevSpeak AI</h2>
+</div>
+<div class="hidden md:flex items-center relative">
+<span class="material-symbols-outlined absolute left-3 text-slate-400 text-sm">search</span>
+<input class="pl-10 pr-4 py-1.5 w-64 bg-slate-100 dark:bg-slate-800 border-none rounded-lg text-sm focus:ring-2 focus:ring-primary/50 transition-all outline-none" placeholder="Search settings..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full border-2 border-white dark:border-background-dark"></span>
+</button>
+<div class="h-8 w-px bg-slate-200 dark:border-slate-800"></div>
+<div class="flex items-center gap-3">
+<div class="text-right hidden sm:block">
+<p class="text-sm font-medium">Alex Rivera</p>
+<p class="text-xs text-slate-500">Pro Plan</p>
+</div>
+<div class="h-9 w-9 rounded-full bg-cover bg-center border border-slate-200 dark:border-slate-700" data-alt="User profile avatar placeholder" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBecCxiMpbsVjhindxjJDWKSKB9U8vA_xxZXDzURODwuB5jEYvPIjSXMauWnH9A1FtarCjRPnI7vc9HsY3Ydv_wETCTN2upS1tXxsBrLUe67Dq2C8M-C3egPHKKqc2B_2QMLU9qSoVqXJeNmaJ71zYCZhF3jnQRXtY3nFvuhTOEBVLZ3bf8IYEE_t62HfViEGlY_GHaFHNsNpJXWyHZT9_bs7msNc2TpfzgEJBC9EHgMC89jAdvMrpihquEOOKs3PTBch42WhC8pw7W');">
+</div>
+</div>
+</div>
+</div>
+</header>
+<div class="max-w-7xl mx-auto flex h-[calc(100vh-64px)] overflow-hidden">
+<!-- Sidebar Navigation -->
+<aside class="w-64 border-r border-slate-200 dark:border-slate-800 flex flex-col justify-between py-6 overflow-y-auto shrink-0">
+<div class="space-y-1 px-4">
+<p class="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Configuration</p>
+<a class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined text-slate-400">settings</span>
+                    General
+                </a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg sidebar-item-active transition-colors" href="#">
+<span class="material-symbols-outlined">palette</span>
+                    Appearance
+                </a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined text-slate-400">notifications</span>
+                    Notifications
+                </a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined text-slate-400">security</span>
+                    Security
+                </a>
+<div class="pt-4 mt-4 border-t border-slate-200 dark:border-slate-800">
+<p class="px-3 mb-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">Account</p>
+<a class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined text-slate-400">person</span>
+                        Profile Details
+                    </a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined text-slate-400">code</span>
+                        API Management
+                    </a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" href="#">
+<span class="material-symbols-outlined text-slate-400">credit_card</span>
+                        Billing &amp; Plan
+                    </a>
+</div>
+</div>
+<div class="px-4 mt-auto">
+<button class="flex w-full items-center gap-3 px-3 py-2.5 text-sm font-medium text-red-500 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors">
+<span class="material-symbols-outlined">logout</span>
+                    Sign Out
+                </button>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-background-dark/50">
+<div class="max-w-4xl mx-auto px-8 py-10 space-y-12">
+<!-- Page Heading -->
+<div class="flex flex-col gap-1">
+<h1 class="text-3xl font-black tracking-tight">Appearance</h1>
+<p class="text-slate-500 dark:text-slate-400">Customize the look and feel of DevSpeak AI's interface.</p>
+</div>
+<!-- Section: Theme Selection -->
+<section class="space-y-6">
+<div class="border-b border-slate-200 dark:border-slate-800 pb-2">
+<h3 class="text-lg font-bold">Interface Theme</h3>
+<p class="text-sm text-slate-500">Select how the application is displayed.</p>
+</div>
+<div class="grid grid-cols-3 gap-6">
+<!-- Light Mode -->
+<div class="group cursor-pointer">
+<div class="aspect-video rounded-xl border-2 border-slate-200 dark:border-slate-800 overflow-hidden mb-3 bg-white relative hover:border-primary/50 transition-all p-2">
+<div class="w-full h-full bg-slate-50 rounded-lg shadow-sm p-2 space-y-2">
+<div class="h-2 w-1/2 bg-slate-200 rounded"></div>
+<div class="h-2 w-3/4 bg-slate-200 rounded"></div>
+<div class="grid grid-cols-2 gap-2 mt-4">
+<div class="h-6 bg-slate-200 rounded"></div>
+<div class="h-6 bg-slate-200 rounded"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center"></div>
+<span class="text-sm font-medium">Light Mode</span>
+</div>
+</div>
+<!-- Dark Mode -->
+<div class="group cursor-pointer">
+<div class="aspect-video rounded-xl border-2 border-primary overflow-hidden mb-3 bg-[#111418] relative transition-all p-2">
+<div class="w-full h-full bg-[#1e2329] rounded-lg shadow-sm p-2 space-y-2">
+<div class="h-2 w-1/2 bg-slate-700 rounded"></div>
+<div class="h-2 w-3/4 bg-slate-700 rounded"></div>
+<div class="grid grid-cols-2 gap-2 mt-4">
+<div class="h-6 bg-slate-700 rounded"></div>
+<div class="h-6 bg-primary/40 rounded"></div>
+</div>
+</div>
+<div class="absolute top-2 right-2">
+<span class="material-symbols-outlined text-primary text-lg">check_circle</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-4 h-4 rounded-full bg-primary flex items-center justify-center">
+<div class="w-1.5 h-1.5 bg-white rounded-full"></div>
+</div>
+<span class="text-sm font-bold text-primary">Dark Mode</span>
+</div>
+</div>
+<!-- System Mode -->
+<div class="group cursor-pointer">
+<div class="aspect-video rounded-xl border-2 border-slate-200 dark:border-slate-800 overflow-hidden mb-3 bg-slate-200 dark:bg-slate-800 relative hover:border-primary/50 transition-all">
+<div class="absolute inset-0 flex">
+<div class="w-1/2 h-full bg-white p-2">
+<div class="h-2 w-full bg-slate-100 rounded"></div>
+<div class="h-2 w-2/3 bg-slate-100 mt-1 rounded"></div>
+</div>
+<div class="w-1/2 h-full bg-slate-900 p-2">
+<div class="h-2 w-full bg-slate-800 rounded"></div>
+<div class="h-2 w-2/3 bg-slate-800 mt-1 rounded"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-4 h-4 rounded-full border border-slate-300 flex items-center justify-center"></div>
+<span class="text-sm font-medium">Sync with System</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Section: Notifications -->
+<section class="space-y-6">
+<div class="border-b border-slate-200 dark:border-slate-800 pb-2">
+<h3 class="text-lg font-bold">Notifications</h3>
+<p class="text-sm text-slate-500">How you'd like to stay updated.</p>
+</div>
+<div class="space-y-4">
+<!-- Toggle Row 1 -->
+<div class="flex items-center justify-between p-4 bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
+<div>
+<p class="text-sm font-semibold">Email Alerts</p>
+<p class="text-xs text-slate-500">Receive summaries and account alerts via email.</p>
+</div>
+<button class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-primary">
+<span class="translate-x-5 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</button>
+</div>
+<!-- Toggle Row 2 -->
+<div class="flex items-center justify-between p-4 bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
+<div>
+<p class="text-sm font-semibold">Practice Reminders</p>
+<p class="text-xs text-slate-500">Daily nudges to keep your dev-speak practice consistent.</p>
+</div>
+<button class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-primary">
+<span class="translate-x-5 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</button>
+</div>
+<!-- Toggle Row 3 -->
+<div class="flex items-center justify-between p-4 bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
+<div>
+<p class="text-sm font-semibold">Weekly Progress Reports</p>
+<p class="text-xs text-slate-500">Get a detailed PDF report of your weekly growth.</p>
+</div>
+<button class="relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-slate-300 dark:bg-slate-700">
+<span class="translate-x-0 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</button>
+</div>
+</div>
+</section>
+<!-- Section: Account & Integrations -->
+<section class="space-y-6">
+<div class="border-b border-slate-200 dark:border-slate-800 pb-2">
+<h3 class="text-lg font-bold">Linked Accounts</h3>
+<p class="text-sm text-slate-500">Manage your connected social accounts.</p>
+</div>
+<div class="space-y-3">
+<div class="flex items-center justify-between p-4 bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
+<div class="flex items-center gap-4">
+<div class="p-2 bg-slate-100 dark:bg-slate-700 rounded-lg">
+<svg class="w-6 h-6 fill-current" viewbox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.43.372.823 1.102.823 2.222 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg>
+</div>
+<div>
+<p class="text-sm font-semibold">GitHub</p>
+<p class="text-xs text-primary font-medium flex items-center gap-1">
+<span class="w-1.5 h-1.5 bg-primary rounded-full"></span>
+                                        Connected as @ariveradev
+                                    </p>
+</div>
+</div>
+<button class="px-4 py-1.5 text-xs font-bold border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+                                Disconnect
+                            </button>
+</div>
+<div class="flex items-center justify-between p-4 bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
+<div class="flex items-center gap-4">
+<div class="p-2 bg-slate-100 dark:bg-slate-700 rounded-lg">
+<svg class="w-6 h-6" viewbox="0 0 48 48"><path d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"></path><path d="m6.306 14.691 6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" fill="#FF3D00"></path><path d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238A11.91 11.91 0 0 1 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z" fill="#4CAF50"></path><path d="M43.611 20.083H42V20H24v8h11.303a12.04 12.04 0 0 1-4.087 5.571l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" fill="#1976D2"></path></svg>
+</div>
+<div>
+<p class="text-sm font-semibold">Google Account</p>
+<p class="text-xs text-slate-500">Sync profile and calendars.</p>
+</div>
+</div>
+<button class="px-4 py-1.5 text-xs font-bold bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors">
+                                Connect
+                            </button>
+</div>
+</div>
+</section>
+<!-- Section: API Management -->
+<section class="space-y-6">
+<div class="border-b border-slate-200 dark:border-slate-800 pb-2">
+<h3 class="text-lg font-bold">API Management</h3>
+<p class="text-sm text-slate-500">Generate personal access tokens for local CLI tools.</p>
+</div>
+<div class="bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+<div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+<span class="text-sm font-semibold">Active Tokens</span>
+<button class="flex items-center gap-1.5 text-xs font-bold text-primary hover:underline">
+<span class="material-symbols-outlined text-sm">add</span>
+                                Create New Token
+                            </button>
+</div>
+<div class="divide-y divide-slate-100 dark:divide-slate-800">
+<div class="p-4 flex items-center justify-between">
+<div class="space-y-1">
+<p class="text-sm font-medium">Local-CLI-Token</p>
+<code class="text-[10px] font-mono bg-slate-100 dark:bg-slate-900 px-1.5 py-0.5 rounded text-slate-600 dark:text-slate-400">
+                                        ds_ai_••••••••••••••••3a9b
+                                    </code>
+</div>
+<div class="flex items-center gap-3">
+<button class="p-1.5 text-slate-400 hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-xl">content_copy</span>
+</button>
+<button class="p-1.5 text-slate-400 hover:text-red-500 transition-colors">
+<span class="material-symbols-outlined text-xl">delete</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Footer Actions -->
+<div class="flex items-center justify-end gap-3 pt-6">
+<button class="px-5 py-2.5 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                        Cancel
+                    </button>
+<button class="px-6 py-2.5 text-sm font-bold bg-primary text-white rounded-lg shadow-lg shadow-primary/20 hover:brightness-110 active:scale-[0.98] transition-all">
+                        Save Preferences
+                    </button>
+</div>
+</div>
+</main>
+</div>
+</body></html>

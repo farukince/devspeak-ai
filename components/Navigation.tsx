@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button'
 import { ThemeToggle } from './theme-toggle'
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import type { User } from '@supabase/supabase-js'
+import { fetchAuthSession, signOut, fetchUserAttributes } from 'aws-amplify/auth'
+import { Amplify } from 'aws-amplify'
+import { awsConfig } from '@/lib/awsConfig'
 
-// --- YENİ BİLEŞEN İÇE AKTARMALARI ---
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,101 +22,148 @@ import {
   AvatarFallback,
   AvatarImage,
 } from "@/components/ui/avatar"
-// ------------------------------------
+
+// Configure Amplify
+Amplify.configure(awsConfig, { ssr: true });
+
+interface UserData {
+  email?: string;
+  given_name?: string;
+  family_name?: string;
+}
 
 export default function Navigation() {
-  const [user, setUser] = useState<User | null>(null);
-  const supabase = createClientComponentClient();
+  const [user, setUser] = useState<UserData | null>(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
-    const getUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user ?? null);
-    };
-    
-    getUser();
+    checkUser();
+  }, []);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      router.refresh();
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [supabase, router]);
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/');
+  const checkUser = async () => {
+    try {
+      const session = await fetchAuthSession();
+      if (session.tokens) {
+        const attributes = await fetchUserAttributes();
+        setUser({
+          email: attributes.email,
+          given_name: attributes.given_name,
+          family_name: attributes.family_name,
+        });
+      } else {
+        setUser(null);
+      }
+    } catch (error) {
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Kullanıcının baş harflerini almak için yardımcı bir fonksiyon
-  const getInitials = (email: string) => {
-    return email?.substring(0, 2).toUpperCase() || '??';
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      setUser(null);
+      router.push('/');
+      router.refresh();
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
+  const getInitials = (email?: string) => {
+    if (!email) return '??';
+    return email.substring(0, 2).toUpperCase();
+  };
+
+  const getDisplayName = () => {
+    if (user?.given_name && user?.family_name) {
+      return `${user.given_name} ${user.family_name}`;
+    }
+    return user?.email?.split('@')[0] || 'User';
+  };
+
+  if (loading) {
+    return (
+      <nav className="bg-cream/90 dark:bg-background-dark/95 backdrop-blur-md border-b border-cream-dark/30 dark:border-border-dark sticky top-0 z-50 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center">
+              <Link href="/" className="flex items-center gap-2 group">
+                <span className="text-2xl">🎯</span>
+                <span className="text-2xl font-bold bg-gradient-to-r from-primary to-primary-dark bg-clip-text text-transparent group-hover:from-primary-light group-hover:to-primary transition-all">
+                  DevSpeak AI
+                </span>
+              </Link>
+            </div>
+            <div className="flex items-center space-x-4">
+              <ThemeToggle />
+            </div>
+          </div>
+        </div>
+      </nav>
+    );
   }
 
   return (
-    <nav className="bg-card/80 backdrop-blur-sm border-b border-border sticky top-0 z-50">
+    <nav className="bg-cream/90 dark:bg-background-dark/95 backdrop-blur-md border-b border-cream-dark/30 dark:border-border-dark sticky top-0 z-50 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
-            <Link href="/" className="text-2xl font-bold text-foreground">
-              DevSpeak AI
+            <Link href="/" className="flex items-center gap-2 group">
+              <span className="text-2xl">🎯</span>
+              <span className="text-2xl font-bold bg-gradient-to-r from-primary to-primary-dark bg-clip-text text-transparent group-hover:from-primary-light group-hover:to-primary transition-all">
+                DevSpeak AI
+              </span>
             </Link>
           </div>
           <div className="hidden md:flex items-center space-x-4">
-            {/* "Modules" linki kaldırıldı */}
-            
             <ThemeToggle />
 
-            {/* --- YENİ DİNAMİK PROFİL MENÜSÜ --- */}
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative h-9 w-9 rounded-full">
-                    <Avatar className="h-9 w-9">
-                      <AvatarImage src={user.user_metadata?.avatar_url} alt="User Avatar" />
-                      <AvatarFallback>{getInitials(user.email || '')}</AvatarFallback>
+                  <Button variant="ghost" className="relative h-10 w-10 rounded-full ring-2 ring-primary/20 hover:ring-primary/40 transition-all">
+                    <Avatar className="h-10 w-10">
+                      <AvatarFallback className="bg-gradient-to-br from-primary to-primary-dark text-white font-semibold">
+                        {getInitials(user.email)}
+                      </AvatarFallback>
                     </Avatar>
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56" align="end" forceMount>
+                <DropdownMenuContent className="w-56 bg-cream dark:bg-surface-dark border-cream-dark/30 dark:border-border-dark" align="end" forceMount>
                   <DropdownMenuLabel className="font-normal">
                     <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium leading-none">My Account</p>
-                      <p className="text-xs leading-none text-muted-foreground">
+                      <p className="text-sm font-semibold text-foreground">{getDisplayName()}</p>
+                      <p className="text-xs text-text-secondary">
                         {user.email}
                       </p>
                     </div>
                   </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <Link href="/progress">Dashboard</Link>
+                  <DropdownMenuSeparator className="bg-cream-dark/30 dark:bg-border-dark" />
+                  <DropdownMenuItem asChild className="hover:bg-primary/10 hover:text-primary cursor-pointer">
+                    <Link href="/dashboard">Dashboard</Link>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
+                  <DropdownMenuItem asChild className="hover:bg-primary/10 hover:text-primary cursor-pointer">
                     <Link href="/profile">Profile Settings</Link>
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleLogout}>
+                  <DropdownMenuSeparator className="bg-cream-dark/30 dark:bg-border-dark" />
+                  <DropdownMenuItem onClick={handleLogout} className="hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/20 cursor-pointer">
                     Log out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Button asChild>
+              <Button asChild className="bg-gradient-to-r from-primary to-primary-dark hover:from-primary-light hover:to-primary text-white font-semibold px-6 rounded-full shadow-md hover:shadow-lg transition-all">
                 <Link href="/login">
                   Get Started
                 </Link>
               </Button>
             )}
-            {/* --- YENİ BÖLÜM SONU --- */}
-            
           </div>
           <div className="md:hidden flex items-center space-x-2">
             <ThemeToggle />
-            {/* Mobile menu logic can be added here later */}
           </div>
         </div>
       </div>

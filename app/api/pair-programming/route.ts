@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGeminiResponse } from '@/lib/geminiClient';
+import { getNovaProResponse } from '@/lib/bedrockClient';
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,18 +18,24 @@ export async function POST(req: NextRequest) {
         if (!code || !task) {
           return NextResponse.json({ error: 'Code and task are required for the driver role.' }, { status: 400 });
         }
-        responseKeys = ['correctness', 'efficiency', 'readability', 'feedback'];
+        responseKeys = ['correctness', 'efficiency', 'readability', 'feedback', 'communication_tips'];
         prompt = `
           You are a "Navigator" in a pair programming session. Your partner, the "Driver", has written code for the task: "${task}".
           Their Code:
           \`\`\`javascript
           ${code}
           \`\`\`
-          Evaluate their code on these criteria (0-100):
-          1. Correctness: Does the code work? Are there bugs?
-          2. Efficiency: Is the code performant?
-          3. Readability: Is the code clean and understandable?
-          Your response MUST be a valid JSON object with keys: "correctness", "efficiency", "readability", and "feedback" (string for textual feedback).
+          Evaluate their code quality and communication style.
+
+          **Output Format:**
+          Your response MUST be a valid JSON object with:
+          - "correctness" (number 0-100)
+          - "efficiency" (number 0-100)
+          - "readability" (number 0-100)
+          - "feedback" (string): Concise summary.
+          - "communication_tips": Array of objects { "title": string, "description": string, "type": "tip"|"warning" }.
+          - "refactoring_suggestions": Array of objects { "title": string, "description": string, "code": string }.
+          - "strategy_alerts": Array of objects { "title": string, "description": string, "type": "warning" }.
         `;
         break;
 
@@ -37,16 +43,20 @@ export async function POST(req: NextRequest) {
         if (!instruction) {
           return NextResponse.json({ error: 'Instruction is required for the navigator role.' }, { status: 400 });
         }
-        responseKeys = ['clarity', 'effectiveness', 'precision', 'generatedCode'];
+        responseKeys = ['clarity', 'effectiveness', 'precision', 'generatedCode', 'communication_tips'];
         prompt = `
           You are a "Driver" in a pair programming session. Your "Navigator" gave you an instruction: "${instruction}".
           Your task is twofold:
           1. Write the code that implements the instruction.
-          2. Evaluate the quality of the instruction itself on these criteria (0-100):
-              - Clarity: Was the instruction easy to understand?
-              - Effectiveness: Did it lead to good code?
-              - Precision: Was it specific enough?
-          Your response MUST be a valid JSON object with keys: "clarity", "effectiveness", "precision", and "generatedCode" (string containing ONLY the generated code block).
+          2. Evaluate the quality of the instruction itself.
+
+          **Output Format:**
+          Your response MUST be a valid JSON object with:
+          - "clarity" (number 0-100)
+          - "effectiveness" (number 0-100)
+          - "precision" (number 0-100)
+          - "generatedCode" (string): The code block.
+          - "communication_tips": Array of objects { "title": string, "description": string, "type": "tip"|"warning" }.
         `;
         break;
 
@@ -54,14 +64,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid role provided.' }, { status: 400 });
     }
 
-    const rawResponse = await getGeminiResponse(prompt);
+    const rawResponse = await getNovaProResponse(prompt);
     let evaluation;
     try {
       evaluation = JSON.parse(rawResponse.replace(/```(json|javascript|js)?/g, '').replace(/```/g, '').trim());
     } catch (e) {
       return NextResponse.json({ error: "AI failed to return a valid JSON format." }, { status: 500 });
     }
-    
+
     // Validate response
     for (const key of responseKeys) {
       if (typeof evaluation[key] === 'undefined') {
@@ -71,7 +81,7 @@ export async function POST(req: NextRequest) {
         evaluation[key] = Math.max(0, Math.min(100, evaluation[key]));
       }
     }
-    
+
     return NextResponse.json(evaluation);
 
   } catch (error) {

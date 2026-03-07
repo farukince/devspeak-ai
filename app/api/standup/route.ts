@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGeminiResponse } from '@/lib/geminiClient';
+import { getNovaLiteResponse } from '@/lib/bedrockClient';
 
 export async function POST(req: NextRequest) {
   try {
@@ -36,14 +36,14 @@ export async function POST(req: NextRequest) {
       Example: { "clarity": 85, "conciseness": 90, "impact": 75, "feedback": "Great update! Your goals for today are very clear..." }
     `;
 
-    const rawResponse = await getGeminiResponse(prompt);
+    const rawResponse = await getNovaLiteResponse(prompt);
     let evaluation;
 
     try {
       const cleanedResponse = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
       evaluation = JSON.parse(cleanedResponse);
     } catch (e) {
-      console.error("Failed to parse Gemini's JSON response:", rawResponse);
+      console.error("Failed to parse Nova's JSON response:", rawResponse);
       return NextResponse.json({ error: "AI failed to return a valid JSON format." }, { status: 500 });
     }
     

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGeminiResponse } from '@/lib/geminiClient';
+import { getNovaProResponse } from '@/lib/bedrockClient';
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,34 +28,44 @@ export async function POST(req: NextRequest) {
 
       **Output Format:**
       Your response MUST be a valid JSON object. Do not add any text, explanation, or markdown formatting before or after the JSON object.
-      The JSON object must have exactly these four keys: "accuracy" (number), "depth" (number), "clarity" (number), and "feedback" (string).
-      The "feedback" string should be a concise, constructive evaluation of the answer, explaining the reasoning behind the scores.
+      The JSON object must have exactly these keys:
+      - "accuracy" (number)
+      - "depth" (number)
+      - "clarity" (number)
+      - "feedback" (string): A concise summary evaluation.
+      - "key_strengths" (array of strings): 2-3 specific strengths in the answer.
+      - "areas_for_growth" (array of strings): 2-3 specific areas to improve.
+      - "recommended_phrasing" (string): A better way to phrase a key part of the answer.
+
+      Example:
+      {
+        "accuracy": 85,
+        "depth": 70,
+        "clarity": 90,
+        "feedback": "Good answer...",
+        "key_strengths": ["Correct usage of terms", "Clear structure"],
+        "areas_for_growth": ["Missed edge case X", "Could be more concise"],
+        "recommended_phrasing": "Instead of saying X, try Y..."
+      }
     `;
 
-    const rawResponse = await getGeminiResponse(prompt);
+    const rawResponse = await getNovaProResponse(prompt);
     let evaluation;
 
     try {
       const cleanedResponse = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
       evaluation = JSON.parse(cleanedResponse);
     } catch (e) {
-      console.error("Failed to parse Gemini's JSON response:", rawResponse);
+      console.error("Failed to parse Nova's JSON response:", rawResponse);
       return NextResponse.json({ error: "AI failed to return a valid JSON format." }, { status: 500 });
     }
 
-    if (
-      typeof evaluation.accuracy !== 'number' ||
-      typeof evaluation.depth !== 'number' ||
-      typeof evaluation.clarity !== 'number' ||
-      typeof evaluation.feedback !== 'string'
-    ) {
-      console.error('Invalid evaluation structure from AI:', evaluation);
-      return NextResponse.json({ error: 'Invalid evaluation response structure' }, { status: 500 });
-    }
-
-    evaluation.accuracy = Math.max(0, Math.min(100, Number(evaluation.accuracy) || 0));
-    evaluation.depth = Math.max(0, Math.min(100, Number(evaluation.depth) || 0));
-    evaluation.clarity = Math.max(0, Math.min(100, Number(evaluation.clarity) || 0));
+    // Basic validation
+    if (typeof evaluation.accuracy !== 'number') evaluation.accuracy = 0;
+    if (typeof evaluation.depth !== 'number') evaluation.depth = 0;
+    if (typeof evaluation.clarity !== 'number') evaluation.clarity = 0;
+    if (!Array.isArray(evaluation.key_strengths)) evaluation.key_strengths = [];
+    if (!Array.isArray(evaluation.areas_for_growth)) evaluation.areas_for_growth = [];
 
     return NextResponse.json(evaluation);
 

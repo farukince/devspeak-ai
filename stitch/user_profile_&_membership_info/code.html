@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>DevSpeak AI - User Profile</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#137fec",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#101922",
+                        "surface-dark": "#1C252E",
+                        "surface-light": "#FFFFFF",
+                        "border-dark": "#2d3748",
+                        "border-light": "#e2e8f0",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "2xl": "1rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        /* Custom scrollbar for webkit */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #4b5563;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-white font-display antialiased overflow-hidden">
+<div class="flex h-screen w-full">
+<!-- Sidebar -->
+<aside class="w-72 hidden md:flex flex-col border-r border-border-light dark:border-border-dark bg-surface-light dark:bg-background-dark h-full">
+<div class="flex items-center gap-3 px-6 py-6">
+<div class="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-10 bg-primary/20 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-3xl">terminal</span>
+</div>
+<div class="flex flex-col">
+<h1 class="text-slate-900 dark:text-white text-base font-bold leading-normal">DevSpeak AI</h1>
+<p class="text-slate-500 dark:text-slate-400 text-xs font-normal">v1.2.0</p>
+</div>
+</div>
+<nav class="flex-1 px-4 flex flex-col gap-2 overflow-y-auto">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-surface-dark transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors">dashboard</span>
+<span class="text-sm font-medium">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-surface-dark transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors">fitness_center</span>
+<span class="text-sm font-medium">Practice</span>
+</a>
+<!-- Active State -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary/10 text-primary transition-colors" href="#">
+<span class="material-symbols-outlined fill-1">person</span>
+<span class="text-sm font-medium">Profile</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-surface-dark transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:text-primary transition-colors">settings</span>
+<span class="text-sm font-medium">Settings</span>
+</a>
+</nav>
+<div class="p-4 border-t border-border-light dark:border-border-dark">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-slate-600 dark:text-slate-400 hover:bg-red-500/10 hover:text-red-500 transition-colors" href="#">
+<span class="material-symbols-outlined">logout</span>
+<span class="text-sm font-medium">Logout</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col min-w-0 overflow-y-auto bg-background-light dark:bg-background-dark relative">
+<!-- Mobile Header (Visible on small screens) -->
+<div class="md:hidden flex items-center justify-between p-4 border-b border-border-light dark:border-border-dark bg-surface-light dark:bg-background-dark">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">terminal</span>
+<span class="font-bold">DevSpeak AI</span>
+</div>
+<button class="p-2 text-slate-500">
+<span class="material-symbols-outlined">menu</span>
+</button>
+</div>
+<div class="container mx-auto max-w-6xl px-4 md:px-8 py-8 flex flex-col gap-8">
+<!-- Profile Header Card -->
+<div class="w-full bg-surface-light dark:bg-surface-dark rounded-xl p-6 md:p-8 border border-border-light dark:border-border-dark shadow-sm">
+<div class="flex flex-col md:flex-row gap-6 items-start md:items-center justify-between">
+<div class="flex flex-col md:flex-row gap-6 items-center md:items-start text-center md:text-left w-full">
+<div class="relative group cursor-pointer">
+<div class="w-28 h-28 rounded-full bg-cover bg-center border-4 border-background-light dark:border-background-dark shadow-md" data-alt="Profile picture of Alex Chen" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuD0DkrZFmXvbwzYYYLaG6UiTs5k1dmkeHbtpyGxTwnpSSiUGKZSLwbg0hZTwoo7ZGSryTvqsCbQwVu4bhEfGQCtkorSPYYvvMxqLf-eeXKgcDaqVu1Gkm0FewnkgRKYM0G473he5yzFfpBY4fHfV-fvv808YOCncHG6jpIDnCcRo71ZzL4giAQg5xYm8FhWtbN1WtS3IYxOV-xT0bGc_hEnbr9GX6Ci5yIGPLPMOXDcIS_mBkZ7vufpXya-WFmEjffAIQvpThvBDQfi');"></div>
+<div class="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-white">edit</span>
+</div>
+</div>
+<div class="flex flex-col gap-2">
+<div class="flex items-center gap-3 justify-center md:justify-start flex-wrap">
+<h1 class="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">Alex Chen</h1>
+<span class="px-3 py-1 bg-primary/10 text-primary text-xs font-bold uppercase tracking-wider rounded-full border border-primary/20">Pro Member</span>
+</div>
+<p class="text-slate-500 dark:text-slate-400 font-medium">Senior Full-Stack Developer</p>
+<div class="flex items-center gap-2 text-sm text-slate-400 justify-center md:justify-start">
+<span class="material-symbols-outlined text-[18px]">calendar_month</span>
+<span>Member since Jan 2023</span>
+</div>
+</div>
+</div>
+<button class="w-full md:w-auto px-5 py-2.5 bg-background-light dark:bg-background-dark hover:bg-slate-200 dark:hover:bg-[#252e38] text-slate-900 dark:text-white border border-border-light dark:border-border-dark rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 whitespace-nowrap">
+<span class="material-symbols-outlined text-[18px]">edit_square</span>
+                            Edit Profile
+                        </button>
+</div>
+</div>
+<!-- Main Grid Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<!-- Left Column: Account Details & Subscription -->
+<div class="lg:col-span-2 flex flex-col gap-6">
+<!-- Account Details -->
+<div class="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark overflow-hidden shadow-sm">
+<div class="px-6 py-4 border-b border-border-light dark:border-border-dark flex justify-between items-center bg-slate-50/50 dark:bg-white/[0.02]">
+<h2 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">badge</span>
+                                    Account Details
+                                </h2>
+</div>
+<div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-8">
+<div class="flex flex-col gap-1.5">
+<label class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Email Address</label>
+<div class="flex items-center gap-2 text-slate-900 dark:text-white font-medium">
+<span class="material-symbols-outlined text-slate-400 text-[20px]">mail</span>
+                                        alex.chen@example.com
+                                    </div>
+</div>
+<div class="flex flex-col gap-1.5">
+<label class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Current Role</label>
+<div class="flex items-center gap-2 text-slate-900 dark:text-white font-medium">
+<span class="material-symbols-outlined text-slate-400 text-[20px]">code</span>
+                                        Senior Developer
+                                    </div>
+</div>
+<div class="flex flex-col gap-1.5">
+<label class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Primary Language</label>
+<div class="flex items-center gap-2 text-slate-900 dark:text-white font-medium">
+<span class="material-symbols-outlined text-slate-400 text-[20px]">language</span>
+                                        English (US)
+                                    </div>
+</div>
+<div class="flex flex-col gap-1.5">
+<label class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Time Zone</label>
+<div class="flex items-center gap-2 text-slate-900 dark:text-white font-medium">
+<span class="material-symbols-outlined text-slate-400 text-[20px]">schedule</span>
+                                        PST (UTC-8)
+                                    </div>
+</div>
+</div>
+</div>
+<!-- Subscription Section -->
+<div class="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark overflow-hidden shadow-sm">
+<div class="px-6 py-4 border-b border-border-light dark:border-border-dark flex justify-between items-center bg-slate-50/50 dark:bg-white/[0.02]">
+<h2 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">credit_card</span>
+                                    Subscription
+                                </h2>
+<span class="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-xs font-bold border border-emerald-500/20">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    Active
+                                </span>
+</div>
+<div class="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+<div class="flex items-center gap-4">
+<div class="h-12 w-12 rounded-lg bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center text-white shadow-lg shadow-primary/20">
+<span class="material-symbols-outlined">rocket_launch</span>
+</div>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<h3 class="text-lg font-bold text-slate-900 dark:text-white">Pro Plan</h3>
+<span class="text-xs text-slate-500 dark:text-slate-400 border border-border-light dark:border-border-dark px-1.5 rounded bg-background-light dark:bg-background-dark">Monthly</span>
+</div>
+<p class="text-sm text-slate-500 dark:text-slate-400">Next billing on <span class="text-slate-900 dark:text-white font-medium">Nov 15, 2023</span> • $29.00</p>
+</div>
+</div>
+<button class="w-full md:w-auto px-4 py-2 bg-primary hover:bg-blue-600 text-white rounded-lg font-medium text-sm transition-colors shadow-lg shadow-primary/20 flex items-center justify-center gap-2">
+                                    Manage Billing
+                                    <span class="material-symbols-outlined text-[18px]">open_in_new</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Right Column: Skills Radar -->
+<div class="lg:col-span-1 h-full">
+<div class="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark overflow-hidden shadow-sm h-full flex flex-col">
+<div class="px-6 py-4 border-b border-border-light dark:border-border-dark bg-slate-50/50 dark:bg-white/[0.02]">
+<h2 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">radar</span>
+                                    Skill Radar
+                                </h2>
+</div>
+<div class="p-6 flex-1 flex flex-col items-center justify-center relative min-h-[360px]">
+<!-- Radar Chart SVG -->
+<div class="relative w-full max-w-[300px] aspect-square">
+<svg class="w-full h-full drop-shadow-xl" viewbox="0 0 300 300">
+<!-- Grid Background -->
+<!-- Center is 150,150. Max radius ~100 -->
+<!-- Web lines -->
+<g class="stroke-slate-200 dark:stroke-slate-700 stroke-1 fill-none">
+<!-- Outer Hexagon -->
+<path d="M150 50 L236.6 100 L236.6 200 L150 250 L63.4 200 L63.4 100 Z"></path>
+<!-- Mid Hexagon -->
+<path d="M150 75 L214.95 112.5 L214.95 187.5 L150 225 L85.05 187.5 L85.05 112.5 Z" opacity="0.6"></path>
+<!-- Inner Hexagon -->
+<path d="M150 100 L193.3 125 L193.3 175 L150 200 L106.7 175 L106.7 125 Z" opacity="0.4"></path>
+<!-- Axis lines -->
+<line x1="150" x2="150" y1="150" y2="50"></line>
+<line x1="150" x2="236.6" y1="150" y2="100"></line>
+<line x1="150" x2="236.6" y1="150" y2="200"></line>
+<line x1="150" x2="150" y1="150" y2="250"></line>
+<line x1="150" x2="63.4" y1="150" y2="200"></line>
+<line x1="150" x2="63.4" y1="150" y2="100"></line>
+</g>
+<!-- Data Polygon -->
+<!-- Points approx based on "skill levels" -->
+<!-- Top (Standup): 80% -> y=70 -->
+<!-- TopRight (Interview): 90% -> r=90 -->
+<!-- BotRight (CodeReview): 60% -> r=60 -->
+<!-- Bot (Arch): 85% -> r=85 -->
+<!-- BotLeft (Neg): 50% -> r=50 -->
+<!-- TopLeft (Soft): 95% -> r=95 -->
+<path class="fill-primary/20 stroke-primary stroke-2 hover:fill-primary/30 transition-all duration-300" d="M150 70 L227.9 105 L201.9 200 L150 235 L93.3 175 L67.7 102.5 Z"></path>
+<!-- Data Points -->
+<g class="fill-primary">
+<circle cx="150" cy="70" r="3"></circle>
+<circle cx="227.9" cy="105" r="3"></circle>
+<circle cx="201.9" cy="200" r="3"></circle>
+<circle cx="150" cy="235" r="3"></circle>
+<circle cx="93.3" cy="175" r="3"></circle>
+<circle cx="67.7" cy="102.5" r="3"></circle>
+</g>
+<!-- Labels -->
+<g class="text-[10px] fill-slate-500 dark:fill-slate-400 font-medium uppercase tracking-wide" text-anchor="middle">
+<text x="150" y="35">Stand-up</text>
+<text text-anchor="start" x="260" y="95">Interview</text>
+<text text-anchor="start" x="260" y="215">Review</text>
+<text x="150" y="275">Architecture</text>
+<text text-anchor="end" x="40" y="215">Negotiation</text>
+<text text-anchor="end" x="40" y="95">Soft Skills</text>
+</g>
+</svg>
+</div>
+<div class="mt-4 text-center">
+<p class="text-sm text-slate-500 dark:text-slate-400">
+                                        Top skill: <span class="text-slate-900 dark:text-white font-semibold">Soft Skills</span>
+</p>
+<p class="text-xs text-slate-400 dark:text-slate-500 mt-1">Based on last 30 days activity</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Recent Activity / Logs (Extra Context) -->
+<div class="bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark overflow-hidden shadow-sm">
+<div class="px-6 py-4 border-b border-border-light dark:border-border-dark flex justify-between items-center bg-slate-50/50 dark:bg-white/[0.02]">
+<h2 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">history</span>
+                            Recent Sessions
+                        </h2>
+<a class="text-xs font-bold text-primary hover:text-blue-400 transition-colors uppercase tracking-wide" href="#">View All</a>
+</div>
+<div class="divide-y divide-border-light dark:divide-border-dark">
+<div class="flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
+<div class="flex items-center gap-4">
+<div class="bg-blue-500/10 text-blue-500 p-2 rounded-lg">
+<span class="material-symbols-outlined text-[20px]">mic</span>
+</div>
+<div>
+<p class="text-sm font-semibold text-slate-900 dark:text-white">Daily Stand-up Simulation</p>
+<p class="text-xs text-slate-500 dark:text-slate-400">Today, 9:30 AM • 4m 20s</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-sm font-bold text-emerald-500">92/100</p>
+<p class="text-xs text-slate-500 dark:text-slate-400">Score</p>
+</div>
+</div>
+<div class="flex items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors">
+<div class="flex items-center gap-4">
+<div class="bg-purple-500/10 text-purple-500 p-2 rounded-lg">
+<span class="material-symbols-outlined text-[20px]">group</span>
+</div>
+<div>
+<p class="text-sm font-semibold text-slate-900 dark:text-white">Architecture Debate</p>
+<p class="text-xs text-slate-500 dark:text-slate-400">Yesterday, 2:15 PM • 12m 05s</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-sm font-bold text-emerald-500">88/100</p>
+<p class="text-xs text-slate-500 dark:text-slate-400">Score</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+</body></html>

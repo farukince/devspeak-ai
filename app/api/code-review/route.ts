@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGeminiResponse } from '@/lib/geminiClient';
+import { getNovaProResponse } from '@/lib/bedrockClient';
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,13 +25,25 @@ export async function POST(req: NextRequest) {
           \`\`\`
           Their review is: "${userReview}"
 
-          Evaluate their review based on these criteria, providing a score from 0-100 for each:
-          1. Constructiveness: Is the feedback helpful and solution-oriented?
-          2. Specificity: Does it point to specific parts of the code?
-          3. Tone: Is the tone professional and collaborative?
-
-          Your response MUST be a valid JSON object with the keys: "constructiveness" (number), "specificity" (number), "tone" (number), and "feedback" (string).
-          Example: { "constructiveness": 80, "specificity": 90, "tone": 85, "feedback": "Your review is excellent because..." }
+          Evaluate their review clearly and constructively.
+          
+          **Output Format:**
+          Your response MUST be a valid JSON object with the following structure:
+          {
+            "constructiveness": number (0-100),
+            "specificity": number (0-100),
+            "tone": number (0-100),
+            "feedback": string (concise summary),
+            "suggestions": [
+              {
+                "title": string (short title),
+                "description": string (detailed advice),
+                "type": "tip" | "warning" | "refactor",
+                "icon": "lightbulb" | "warning" | "auto_fix_high"
+              }
+            ]
+          }
+          Provide exactly 3 items in the "suggestions" array.
         `;
         break;
 
@@ -43,13 +55,25 @@ export async function POST(req: NextRequest) {
           ${codeToReview}
           \`\`\`
 
-          Evaluate their code based on these criteria, providing a score from 0-100 for each:
-          1. Correctness: Does the code work as expected? Are there bugs?
-          2. Readability: Is the code clean and easy to understand?
-          3. Best Practices: Does the code follow common best practices?
+          Evaluate their code quality.
 
-          Your response MUST be a valid JSON object with the keys: "correctness" (number), "readability" (number), "bestPractices" (number), and "feedback" (string).
-          Example: { "correctness": 95, "readability": 75, "bestPractices": 80, "feedback": "The code is functionally correct, which is great. For readability..." }
+          **Output Format:**
+          Your response MUST be a valid JSON object with the following structure:
+          {
+            "correctness": number (0-100),
+            "readability": number (0-100),
+            "bestPractices": number (0-100),
+            "feedback": string (concise summary),
+            "suggestions": [
+              {
+                "title": string (short title),
+                "description": string (detailed advice),
+                "type": "tip" | "warning" | "refactor",
+                "icon": "lightbulb" | "warning" | "auto_fix_high"
+              }
+            ]
+          }
+          Provide exactly 3 items in the "suggestions" array.
         `;
         break;
 
@@ -57,21 +81,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid role selected.' }, { status: 400 });
     }
 
-    const rawResponse = await getGeminiResponse(prompt);
+    const rawResponse = await getNovaProResponse(prompt);
     let evaluation;
 
     try {
       const cleanedResponse = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
       evaluation = JSON.parse(cleanedResponse);
     } catch (e) {
-      console.error("Failed to parse Gemini's JSON response:", rawResponse);
+      console.error("Failed to parse Nova's JSON response:", rawResponse);
       return NextResponse.json({ error: "AI failed to return a valid JSON format." }, { status: 500 });
     }
 
-    const requiredKeys = role === 'reviewer' 
-      ? ['constructiveness', 'specificity', 'tone'] 
+    const requiredKeys = role === 'reviewer'
+      ? ['constructiveness', 'specificity', 'tone']
       : ['correctness', 'readability', 'bestPractices'];
-    
+
     for (const key of requiredKeys) {
       if (typeof evaluation[key] !== 'number') {
         console.error(`Invalid or missing key '${key}' in AI response:`, evaluation);
@@ -79,7 +103,7 @@ export async function POST(req: NextRequest) {
       }
       evaluation[key] = Math.max(0, Math.min(100, evaluation[key]));
     }
-    
+
     return NextResponse.json(evaluation);
 
   } catch (error) {

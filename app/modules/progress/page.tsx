@@ -5,11 +5,13 @@ import Navigation from '@/components/Navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Badge } from '@/components/ui/badge';
+import ActivityHeatmap from '@/components/ActivityHeatmap';
 
 interface DashboardData {
   totalSessions: number;
   moduleCounts: { [key: string]: number };
   scoreTrends: { date: string; [key: string]: number | string }[];
+  heatmapData: { day: string; value: number }[];
   analysis: {
     strongestArea: { name: string; score: number };
     weakestArea: { name: string; score: number };
@@ -83,7 +85,7 @@ export default function ProgressPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Navigation currentPage="modules" />
+      <Navigation />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold">Your Progress</h1>
@@ -97,6 +99,11 @@ export default function ProgressPage() {
         </div>
 
         <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
+          {/* Activity Heatmap - Full Width */}
+          <div className="lg:col-span-3">
+            <ActivityHeatmap data={data.heatmapData || []} />
+          </div>
+
           <Card className="lg:col-span-3">
             <CardHeader><CardTitle>Score Trends Over Time</CardTitle></CardHeader>
             <CardContent>

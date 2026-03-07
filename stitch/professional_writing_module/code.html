@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>DevSpeak AI - Professional Writing</title>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Noto+Sans:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary": "#137fec",
+              "background-light": "#f6f7f8",
+              "background-dark": "#101922",
+              "surface-dark": "#1c2127",
+              "border-dark": "#283039",
+            },
+            fontFamily: {
+              "display": ["Inter", "sans-serif"],
+              "mono": ["Geist Mono", "monospace"],
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        /* Custom scrollbar for editor */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1c2127; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #3b4754; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #4b5966; 
+        }
+        
+        .editor-content:focus {
+            outline: none;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-[#111418] dark:text-white min-h-screen flex flex-col overflow-hidden">
+<!-- Top Navigation -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-border-dark px-6 py-3 bg-surface-dark/50 backdrop-blur-md z-10">
+<div class="flex items-center gap-4 text-white">
+<div class="size-8 flex items-center justify-center rounded-lg bg-primary/20 text-primary">
+<span class="material-symbols-outlined text-2xl">code_blocks</span>
+</div>
+<h2 class="text-white text-lg font-bold leading-tight tracking-[-0.015em]">DevSpeak AI</h2>
+</div>
+<div class="hidden md:flex flex-1 justify-center">
+<!-- Centered Segmented Control for Writing Type -->
+<div class="flex p-1 bg-surface-dark rounded-lg border border-border-dark">
+<label class="cursor-pointer">
+<input class="peer sr-only" name="writing-type" type="radio"/>
+<div class="px-4 py-1.5 rounded-md text-sm font-medium text-[#9dabb9] peer-checked:bg-primary peer-checked:text-white transition-all hover:text-white">Technical Email</div>
+</label>
+<label class="cursor-pointer">
+<input checked="" class="peer sr-only" name="writing-type" type="radio"/>
+<div class="px-4 py-1.5 rounded-md text-sm font-medium text-[#9dabb9] peer-checked:bg-primary peer-checked:text-white transition-all hover:text-white">Blog Post</div>
+</label>
+<label class="cursor-pointer">
+<input class="peer sr-only" name="writing-type" type="radio"/>
+<div class="px-4 py-1.5 rounded-md text-sm font-medium text-[#9dabb9] peer-checked:bg-primary peer-checked:text-white transition-all hover:text-white">Documentation</div>
+</label>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="hidden lg:flex items-center gap-6">
+<a class="text-[#9dabb9] hover:text-white text-sm font-medium leading-normal transition-colors" href="#">Dashboard</a>
+<a class="text-white text-sm font-medium leading-normal border-b-2 border-primary pb-0.5" href="#">Practice</a>
+<a class="text-[#9dabb9] hover:text-white text-sm font-medium leading-normal transition-colors" href="#">Settings</a>
+</div>
+<div class="bg-center bg-no-repeat aspect-square bg-cover rounded-full size-9 ring-2 ring-border-dark" data-alt="User profile picture placeholder with abstract gradient" style='background-image: url("https://lh3.googleusercontent.com/aida-public/AB6AXuD1ClUyLoST1F5-0kaOxWnzxhrGfSs7V2tb1y7HN-0pkq1UMR17DLe02TZUGlQHN07sM8a-gyAcfuiwMyHGn1yid0qi1xvHrXy6gP7rasQCPe3v2C2EjILiUuEk1gh2IZbczo0l4K-vE1zwSYYDnHIUgkD0IjOX0U_3YuR7oKtqN6mXZQ8wVrJWmfmZGw0N97hrvtBT74fTWBe_ZBtpDsQuXqPihNbWJSi28XHnRdZ7sxfAdyKbY_tOz3POPXXg8fL3L_XS6iShwFJj");'></div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 flex overflow-hidden relative">
+<!-- Left Pane: Editor -->
+<div class="flex-1 flex flex-col min-w-0 bg-background-light dark:bg-background-dark relative">
+<!-- Editor Header/Toolbar -->
+<div class="flex flex-col gap-4 px-8 pt-8 pb-4">
+<!-- Breadcrumbs/Heading -->
+<div class="flex items-center gap-2 text-sm text-[#9dabb9]">
+<span>Professional Writing</span>
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+<span class="text-white">New Blog Post</span>
+</div>
+<!-- Title Input -->
+<input class="w-full bg-transparent border-none text-4xl font-bold text-white placeholder-[#3b4754] focus:ring-0 px-0 py-2" placeholder="Enter document title..." type="text" value="Optimizing React Rendering Performance"/>
+<!-- Formatting Toolbar -->
+<div class="flex items-center gap-1 border-b border-border-dark pb-3">
+<button class="p-2 text-[#9dabb9] hover:text-white hover:bg-surface-dark rounded transition-colors"><span class="material-symbols-outlined text-[20px]">format_bold</span></button>
+<button class="p-2 text-[#9dabb9] hover:text-white hover:bg-surface-dark rounded transition-colors"><span class="material-symbols-outlined text-[20px]">format_italic</span></button>
+<button class="p-2 text-[#9dabb9] hover:text-white hover:bg-surface-dark rounded transition-colors"><span class="material-symbols-outlined text-[20px]">link</span></button>
+<div class="w-px h-5 bg-border-dark mx-2"></div>
+<button class="p-2 text-[#9dabb9] hover:text-white hover:bg-surface-dark rounded transition-colors"><span class="material-symbols-outlined text-[20px]">format_h1</span></button>
+<button class="p-2 text-[#9dabb9] hover:text-white hover:bg-surface-dark rounded transition-colors"><span class="material-symbols-outlined text-[20px]">format_h2</span></button>
+<div class="w-px h-5 bg-border-dark mx-2"></div>
+<button class="p-2 text-[#9dabb9] hover:text-white hover:bg-surface-dark rounded transition-colors"><span class="material-symbols-outlined text-[20px]">code_blocks</span></button>
+<button class="p-2 text-[#9dabb9] hover:text-white hover:bg-surface-dark rounded transition-colors"><span class="material-symbols-outlined text-[20px]">format_list_bulleted</span></button>
+</div>
+</div>
+<!-- Editor Text Area -->
+<div class="flex-1 overflow-y-auto custom-scrollbar px-8 pb-20">
+<div class="flex gap-4 min-h-full">
+<!-- Line Numbers -->
+<div class="flex flex-col gap-1 text-right font-mono text-sm text-[#3b4754] select-none pt-1">
+<span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span>
+</div>
+<!-- Content -->
+<div class="flex-1 font-display text-lg leading-relaxed text-[#d0d7de] outline-none editor-content" contenteditable="true">
+<p class="mb-4">Hey team, just wanted to ping you about the re-renders. The code looks weird in the `UserProfile` component.</p>
+<p class="mb-4">I noticed that we are passing new object references as props on every render, which is killing performance. We should probably wrap those in a `useMemo` or something.</p>
+<p class="mb-4">Here is what I found:</p>
+<pre class="bg-surface-dark p-4 rounded-lg font-mono text-sm text-[#9dabb9] mb-4 border border-border-dark"><code>const userConfig = { 
+  theme: 'dark', 
+  notifications: true 
+}; // This creates a new object every time!
+
+return <profile config="{userConfig}"></profile>;</code></pre>
+<p>Let me know if you want me to fix this or if someone else has bandwidth.</p>
+</div>
+</div>
+</div>
+<!-- Bottom Stats -->
+<div class="absolute bottom-0 left-0 right-0 bg-background-dark/95 backdrop-blur border-t border-border-dark px-8 py-2 flex justify-between items-center text-xs text-[#9dabb9]">
+<div class="flex gap-4">
+<span>markdown</span>
+<span>124 words</span>
+<span>2 mins read</span>
+</div>
+<div>
+                    Draft saved just now
+                </div>
+</div>
+</div>
+<!-- Right Pane: Analysis Sidebar -->
+<aside class="w-[400px] border-l border-border-dark bg-surface-dark flex flex-col shadow-xl">
+<!-- Sidebar Header -->
+<div class="p-6 border-b border-border-dark flex justify-between items-center">
+<div>
+<h3 class="text-white font-bold text-lg">Writing Analysis</h3>
+<p class="text-xs text-[#9dabb9]">Real-time feedback powered by Gemini</p>
+</div>
+<div class="size-8 rounded-full bg-primary/10 flex items-center justify-center text-primary animate-pulse">
+<span class="material-symbols-outlined text-lg">auto_awesome</span>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto custom-scrollbar p-6 flex flex-col gap-8">
+<!-- Scorecards -->
+<div class="flex flex-col gap-5">
+<h4 class="text-xs font-bold uppercase tracking-wider text-[#9dabb9]">Metrics</h4>
+<!-- Tone Score -->
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-end">
+<span class="text-sm font-medium text-white">Tone: Casual</span>
+<span class="text-xs font-bold text-orange-400">45%</span>
+</div>
+<div class="h-2 w-full bg-[#283039] rounded-full overflow-hidden">
+<div class="h-full bg-orange-400 w-[45%] rounded-full"></div>
+</div>
+<p class="text-xs text-[#9dabb9]">Too informal for a technical blog post.</p>
+</div>
+<!-- Structure Score -->
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-end">
+<span class="text-sm font-medium text-white">Structure</span>
+<span class="text-xs font-bold text-emerald-400">80%</span>
+</div>
+<div class="h-2 w-full bg-[#283039] rounded-full overflow-hidden">
+<div class="h-full bg-emerald-400 w-[80%] rounded-full"></div>
+</div>
+</div>
+<!-- Completeness Score -->
+<div class="flex flex-col gap-2">
+<div class="flex justify-between items-end">
+<span class="text-sm font-medium text-white">Completeness</span>
+<span class="text-xs font-bold text-primary">60%</span>
+</div>
+<div class="h-2 w-full bg-[#283039] rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[60%] rounded-full"></div>
+</div>
+</div>
+</div>
+<hr class="border-border-dark"/>
+<!-- Suggestions Feed -->
+<div class="flex flex-col gap-4">
+<div class="flex items-center justify-between">
+<h4 class="text-xs font-bold uppercase tracking-wider text-[#9dabb9]">Suggestions (3)</h4>
+<button class="text-xs text-primary hover:text-primary/80 font-medium">Apply All</button>
+</div>
+<!-- Card 1 -->
+<div class="bg-[#111418] border border-border-dark rounded-xl p-4 flex flex-col gap-3 group hover:border-primary/50 transition-colors cursor-pointer">
+<div class="flex items-start gap-3">
+<span class="material-symbols-outlined text-orange-400 text-lg mt-0.5">warning</span>
+<div class="flex flex-col gap-1">
+<span class="text-xs font-medium text-orange-400 uppercase tracking-wide">Imprecise Language</span>
+<p class="text-sm text-[#9dabb9] line-through decoration-orange-400/50">"The code looks weird..."</p>
+</div>
+</div>
+<div class="pl-8 flex flex-col gap-3">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-primary text-lg mt-0.5 transform rotate-90">subdirectory_arrow_right</span>
+<p class="text-sm text-white font-medium">"The current implementation exhibits unexpected behavior..."</p>
+</div>
+<div class="flex gap-2 mt-1">
+<button class="flex-1 bg-primary hover:bg-primary/90 text-white text-xs font-medium py-1.5 px-3 rounded flex items-center justify-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-sm">check</span> Apply
+                                </button>
+<button class="bg-[#283039] hover:bg-[#353e49] text-white text-xs font-medium py-1.5 px-3 rounded flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-sm">close</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-[#111418] border border-border-dark rounded-xl p-4 flex flex-col gap-3 group hover:border-primary/50 transition-colors cursor-pointer">
+<div class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary text-lg mt-0.5">style</span>
+<div class="flex flex-col gap-1">
+<span class="text-xs font-medium text-primary uppercase tracking-wide">Professional Tone</span>
+<p class="text-sm text-[#9dabb9] line-through decoration-primary/30">"ping you about"</p>
+</div>
+</div>
+<div class="pl-8 flex flex-col gap-3">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-primary text-lg mt-0.5 transform rotate-90">subdirectory_arrow_right</span>
+<p class="text-sm text-white font-medium">"discuss"</p>
+</div>
+<div class="flex gap-2 mt-1">
+<button class="flex-1 bg-primary hover:bg-primary/90 text-white text-xs font-medium py-1.5 px-3 rounded flex items-center justify-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-sm">check</span> Apply
+                                </button>
+<button class="bg-[#283039] hover:bg-[#353e49] text-white text-xs font-medium py-1.5 px-3 rounded flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-sm">close</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-[#111418] border border-border-dark rounded-xl p-4 flex flex-col gap-3 group hover:border-primary/50 transition-colors cursor-pointer opacity-70 hover:opacity-100">
+<div class="flex items-start gap-3">
+<span class="material-symbols-outlined text-blue-400 text-lg mt-0.5">lightbulb</span>
+<div class="flex flex-col gap-1">
+<span class="text-xs font-medium text-blue-400 uppercase tracking-wide">Clarity</span>
+<p class="text-sm text-[#9dabb9] line-through decoration-blue-400/30">"killing performance"</p>
+</div>
+</div>
+<div class="pl-8 flex flex-col gap-3">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-primary text-lg mt-0.5 transform rotate-90">subdirectory_arrow_right</span>
+<p class="text-sm text-white font-medium">"negatively impacting performance"</p>
+</div>
+<div class="flex gap-2 mt-1">
+<button class="flex-1 bg-primary hover:bg-primary/90 text-white text-xs font-medium py-1.5 px-3 rounded flex items-center justify-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-sm">check</span> Apply
+                                </button>
+<button class="bg-[#283039] hover:bg-[#353e49] text-white text-xs font-medium py-1.5 px-3 rounded flex items-center justify-center transition-colors">
+<span class="material-symbols-outlined text-sm">close</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Helper/Gemini Chat placeholder -->
+<div class="mt-auto pt-4 border-t border-border-dark">
+<div class="flex gap-2 items-center text-primary text-sm font-medium cursor-pointer hover:underline">
+<span class="material-symbols-outlined text-lg">chat_spark</span>
+                        Ask Gemini to rewrite section...
+                    </div>
+</div>
+</div>
+</aside>
+</main>
+</body></html>

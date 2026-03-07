@@ -1,39 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
+import { fetchAuthSession } from 'aws-amplify/auth/server';
+import { runWithAmplifyServerContext } from '@aws-amplify/adapter-nextjs';
+import { getUserPracticeSessions } from '@/lib/dynamoDBClient';
 import { startOfDay } from 'date-fns';
 
 export async function GET(request: NextRequest) {
-  const supabase = createRouteHandlerClient({ cookies });
-
   try {
-    // 1. Kullanıcıyı doğrula
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    // 1. Authenticate user with Cognito
+    const authenticated = await runWithAmplifyServerContext({
+      nextServerContext: { request },
+      operation: async (contextSpec) => {
+        try {
+          const session = await fetchAuthSession(contextSpec);
+          return session;
+        } catch (error) {
+          return null;
+        }
+      },
+    });
+
+    if (!authenticated || !authenticated.tokens) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // 2. Kullanıcının tüm pratiklerini veritabanından çek
-    const { data: sessions, error } = await supabase
-      .from('practice_sessions')
-      .select('created_at, module_type, scores')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true });
+    // Extract user ID from Cognito token
+    const userId = authenticated.tokens.idToken?.payload.sub as string;
 
-    if (error) throw error;
+    if (!userId) {
+      return NextResponse.json({ error: 'Invalid user session' }, { status: 401 });
+    }
+
+    // 2. Get all practice sessions from DynamoDB
+    const sessions = await getUserPracticeSessions(userId);
+
     if (!sessions || sessions.length === 0) {
       return NextResponse.json({ message: 'No practice sessions found.' });
     }
 
-    // --- VERİ İŞLEME BÖLÜMÜ ---
+    // --- DATA PROCESSING ---
 
-    // 3. Genel İstatistikleri Hesapla
+    // 3. Calculate general statistics
     const totalSessions = sessions.length;
-    const firstPracticeDate = sessions[0].created_at;
+    const firstPracticeDate = sessions[0].createdAt;
 
-    // 4. Aktivite Takvimi (Heatmap) için veriyi hazırla
+    // 4. Prepare heatmap data
     const heatmapData = sessions.reduce((acc: { [key: string]: number }, session) => {
-      const day = session.created_at.split('T')[0]; // YYYY-MM-DD formatında
+      const day = session.createdAt.split('T')[0]; // YYYY-MM-DD format
       acc[day] = (acc[day] || 0) + 1;
       return acc;
     }, {});
@@ -43,21 +55,21 @@ export async function GET(request: NextRequest) {
       value: heatmapData[day],
     }));
 
-    // 5. Modül Dağılımını Hesapla (Bar Chart için)
+    // 5. Calculate module distribution (for bar chart)
     const moduleCounts = sessions.reduce((acc: { [key: string]: number }, session) => {
-      acc[session.module_type] = (acc[session.module_type] || 0) + 1;
+      acc[session.moduleType] = (acc[session.moduleType] || 0) + 1;
       return acc;
     }, {});
 
-    // 6. Skor Gelişimini Hesapla (Line Chart için)
+    // 6. Calculate score trends (for line chart)
     const scoreTrends: { [key: string]: any }[] = [];
     const sessionsByDay = sessions.reduce((acc: { [key: string]: any[] }, session) => {
-      const day = startOfDay(new Date(session.created_at)).toISOString();
+      const day = startOfDay(new Date(session.createdAt)).toISOString();
       if (!acc[day]) acc[day] = [];
       acc[day].push(session);
       return acc;
     }, {});
-    
+
     Object.keys(sessionsByDay).forEach(day => {
       const daySessions = sessionsByDay[day];
       const dailyAverages: { [key: string]: number } = {};
@@ -71,7 +83,7 @@ export async function GET(request: NextRequest) {
           });
         }
       });
-      
+
       const trendPoint: { [key: string]: any } = { date: new Date(day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
       Object.keys(dailyAverages).forEach(key => {
         trendPoint[key] = Math.round(dailyAverages[key] / counts[key]);
@@ -79,14 +91,14 @@ export async function GET(request: NextRequest) {
       scoreTrends.push(trendPoint);
     });
 
-    // 7. Güçlü/Zayıf Yön Analizi için veriyi hazırla
+    // 7. Analyze strengths/weaknesses
     const allScores: { [key: string]: number[] } = {};
     sessions.forEach(session => {
       if (session.scores) {
         Object.keys(session.scores).forEach(key => {
-          if (key !== 'overall') { // Genel skoru analize katmayalım
-             if (!allScores[key]) allScores[key] = [];
-             allScores[key].push(session.scores[key]);
+          if (key !== 'overall') {
+            if (!allScores[key]) allScores[key] = [];
+            allScores[key].push(session.scores[key]);
           }
         });
       }
@@ -100,13 +112,47 @@ export async function GET(request: NextRequest) {
       if (avg < weakestArea.score) weakestArea = { name: key, score: Math.round(avg) };
     });
 
-    // 8. Son Aktiviteleri al (son 5 pratik)
-    const recentActivity = sessions.slice(-5).reverse().map(s => ({
-      module: s.module_type,
-      date: new Date(s.created_at).toLocaleString(),
-    }));
+    // 7b. Module-based strongest/weakest area
+    const moduleAverages: { [key: string]: number[] } = {};
+    sessions.forEach(session => {
+      if (session.scores && typeof session.scores === 'object') {
+        const vals = Object.values(session.scores) as number[];
+        const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+        const m = session.moduleType;
+        if (!moduleAverages[m]) moduleAverages[m] = [];
+        moduleAverages[m].push(avg);
+      }
+    });
+    let strongestModule = { name: 'N/A', score: 0 };
+    let weakestModule = { name: 'N/A', score: 100 };
+    Object.keys(moduleAverages).forEach(moduleName => {
+      const avg = moduleAverages[moduleName].reduce((a, b) => a + b, 0) / moduleAverages[moduleName].length;
+      const score = Math.round(avg);
+      if (score > strongestModule.score) strongestModule = { name: moduleName, score };
+      if (score < weakestModule.score) weakestModule = { name: moduleName, score };
+    });
 
-    // --- SONUÇLARI BİRLEŞTİR ---
+    // 8. Get recent activities (last 5 practices)
+    const recentActivity = sessions.slice(-5).reverse().map(s => {
+      let overallScore: number | null = null;
+      if (s.scores && typeof s.scores === 'object') {
+        if (typeof (s.scores as Record<string, unknown>).overall === 'number') {
+          overallScore = Math.round((s.scores as Record<string, number>).overall);
+        } else {
+          const vals = Object.values(s.scores).filter((v): v is number => typeof v === 'number');
+          overallScore = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+        }
+      }
+      return {
+        module: s.moduleType,
+        task_name: s.taskName || s.moduleType,
+        date: new Date(s.createdAt).toLocaleString(),
+        score: overallScore,
+        ai_feedback: s.aiFeedback || '',
+      };
+    });
+
+    // --- COMBINE RESULTS ---
     const dashboardData = {
       totalSessions,
       firstPracticeDate,
@@ -114,6 +160,7 @@ export async function GET(request: NextRequest) {
       moduleCounts,
       scoreTrends,
       analysis: { strongestArea, weakestArea },
+      moduleAnalysis: { strongestModule, weakestModule },
       recentActivity
     };
 

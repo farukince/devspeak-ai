@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGeminiResponse } from '@/lib/geminiClient';
+import { getNovaLiteResponse } from '@/lib/bedrockClient';
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,25 +20,33 @@ export async function POST(req: NextRequest) {
       """
 
       **Evaluation Criteria:**
-      Evaluate the writing based on the following criteria, providing a score from 0 to 100 for each:
-      1.  **Clarity:** Is the message clear, concise, and easy to understand?
-      2.  **Structure:** Is the content well-organized with a logical flow?
-      3.  **Tone:** Is the tone appropriate for the selected writing type?
-      4.  **Completeness:** Does the writing achieve its goal and include all necessary information?
-
+      Evaluate the writing quality based on the selected type ("${writingType}").
+      
       **Output Format:**
-      Your response MUST be a valid JSON object with the keys: "clarity" (number), "structure" (number), "tone" (number), "completeness" (number), and "feedback" (string).
-      Example: { "clarity": 80, "structure": 85, "tone": 90, "completeness": 75, "feedback": "This is a good start..." }
+      Your response MUST be a valid JSON object with:
+      - "clarity" (number 0-100)
+      - "structure" (number 0-100)
+      - "tone" (number 0-100): Appropriateness for the type.
+      - "completeness" (number 0-100)
+      - "feedback" (string): Concise summary.
+      - "suggestions": Array of exactly 3 objects:
+        {
+          "title": string (short title),
+          "description": string (explanation),
+          "type": "tip" | "warning" | "refactor",
+          "original_text": string (exact text match from user content to highlight),
+          "replacement_text": string (suggested replacement)
+        }
     `;
 
-    const rawResponse = await getGeminiResponse(prompt);
+    const rawResponse = await getNovaLiteResponse(prompt);
     let evaluation;
 
     try {
       const cleanedResponse = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
       evaluation = JSON.parse(cleanedResponse);
     } catch (e) {
-      console.error("Failed to parse Gemini's JSON response:", rawResponse);
+      console.error("Failed to parse Nova's JSON response:", rawResponse);
       return NextResponse.json({ error: "AI failed to return a valid JSON format." }, { status: 500 });
     }
 
@@ -48,13 +56,13 @@ export async function POST(req: NextRequest) {
       const value = evaluation[key];
       const type = typeof value;
       if (value === undefined || (type !== 'number' && type !== 'string')) {
-         return NextResponse.json({ error: `AI response was missing or had an invalid type for '${key}'.` }, { status: 500 });
+        return NextResponse.json({ error: `AI response was missing or had an invalid type for '${key}'.` }, { status: 500 });
       }
       if (type === 'number') {
         evaluation[key] = Math.max(0, Math.min(100, value));
       }
     }
-    
+
     return NextResponse.json(evaluation);
 
   } catch (error) {

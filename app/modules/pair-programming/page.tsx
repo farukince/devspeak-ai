@@ -1,156 +1,358 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Navigation from '../../../components/Navigation';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { Progress } from '@/components/ui/progress';
+import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
 
-const tasks = [
-    { id: 'binary-search', title: 'Implement a binary search function', description: 'Create an efficient binary search algorithm.'},
-    { id: 'login-bug', title: 'Fix bug in login form', description: 'Debug and resolve authentication issues.'},
-    { id: 'loading-state', title: 'Add loading state to the button', description: 'Implement loading spinner and disabled state.'}
-];
+interface FeedbackItem {
+  title: string;
+  description: string;
+  type?: 'tip' | 'warning' | 'refactor';
+  code?: string;
+}
 
-// Tipleri tanımlıyoruz
-interface DriverFeedback { correctness: number; efficiency: number; readability: number; feedback: string; }
-interface NavigatorFeedback { clarity: number; effectiveness: number; precision: number; generatedCode: string; }
+interface DriverFeedback {
+  correctness: number;
+  efficiency: number;
+  readability: number;
+  feedback: string;
+  communication_tips?: FeedbackItem[];
+  refactoring_suggestions?: FeedbackItem[];
+  strategy_alerts?: FeedbackItem[];
+}
+
+interface NavigatorFeedback {
+  clarity: number;
+  effectiveness: number;
+  precision: number;
+  generatedCode: string;
+  communication_tips?: FeedbackItem[];
+}
+
 type AiFeedbackType = DriverFeedback | NavigatorFeedback;
 
-export default function PairProgrammingPage() {
-  const [selectedRole, setSelectedRole] = useState<'driver' | 'navigator' | null>(null);
-  const [selectedTask, setSelectedTask] = useState<string>('');
-  const [code, setCode] = useState('// Your code will appear here...');
-  const [instruction, setInstruction] = useState('');
-  const [feedback, setFeedback] = useState<AiFeedbackType | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string>('');
+interface ChatMessage {
+  role: 'user' | 'ai';
+  text: string;
+  timestamp: string;
+}
 
-  const currentTask = tasks.find(t => t.id === selectedTask);
+const DEFAULT_CODE = `import json
+import time
+
+def process_data(payload):
+    # Start by parsing the incoming JSON
+    data = json.loads(payload)
+    results = []
+    
+    for item in data['items']:
+        if item.get('valid'):
+            results.append(item)
+            
+    return results`;
+
+export default function PairProgrammingModule() {
+  const [role, setRole] = useState<'driver' | 'navigator'>('driver');
+  const [code, setCode] = useState(DEFAULT_CODE);
+  const [chatInput, setChatInput] = useState('');
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [feedback, setFeedback] = useState<AiFeedbackType | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [task, setTask] = useState('Implement a binary search function'); // Default task
+
+  const { speak, pause, resume, stop, speaking, paused, supported: ttsSupported } = useSpeechSynthesis({ rate: 1, pitch: 1, volume: 1 });
+
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (selectedRole === 'navigator') { setCode("// AI's code will appear here..."); setSelectedTask(''); } 
-    else { setCode('// Start coding here...'); }
-    setInstruction(''); setFeedback(null); setError('');
-  }, [selectedRole]);
+    // Reset session on role change
+    setFeedback(null);
+    setChatHistory([]);
+    setChatInput('');
+    if (role === 'navigator') {
+      setCode('# AI will write code here based on your instructions...');
+      setTask(''); // Navigators give instructions, task is less relevant initially or derived from context
+    } else {
+      setCode(DEFAULT_CODE);
+      setTask('Refactor this legacy data processing script');
+    }
+    stop();
+  }, [role, stop]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatHistory]);
 
   const handleSubmit = async () => {
-    let requestBody;
-    if (selectedRole === 'driver') {
-      if (!currentTask) { setError('Please select a task.'); return; }
-      if (!code.trim()) { setError('Please write some code.'); return; }
-      requestBody = { role: 'driver', task: currentTask.title, code };
-    } else if (selectedRole === 'navigator') {
-      if (!instruction.trim()) { setError('Please provide an instruction.'); return; }
-      requestBody = { role: 'navigator', instruction };
-    } else { setError('Please select a role.'); return; }
+    if (role === 'navigator' && !chatInput.trim()) return;
+    if (role === 'driver' && !code.trim()) return;
 
-    setIsLoading(true); setError(''); setFeedback(null);
+    setLoading(true);
+    const userMessage = role === 'navigator' ? chatInput : (chatInput || "Submitting current code for review...");
+
+    // Add user message to chat
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setChatHistory(prev => [...prev, { role: 'user', text: userMessage, timestamp }]);
+    setChatInput('');
+
+    const payload = role === 'driver'
+      ? { role: 'driver', task, code }
+      : { role: 'navigator', instruction: userMessage };
 
     try {
-      const response = await fetch('/api/pair-programming', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
-      if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.error || 'Failed to get AI feedback'); }
-      const data: AiFeedbackType = await response.json();
-      setFeedback(data);
-      
-      let scores = {};
-      let ai_feedback_text = '';
-      let user_input = {};
+      const response = await fetch('/api/pair-programming', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-      if (selectedRole === 'navigator' && 'generatedCode' in data) {
-        const newCode = data.generatedCode.replace(/```(javascript|js)?/g, '').replace(/```/g, '').trim();
-        setCode(prevCode => prevCode.includes("// AI's code will appear here...") ? newCode : `${prevCode}\n${newCode}`);
-        setInstruction('');
-        const { generatedCode, ...restScores } = data;
-        scores = restScores;
-        ai_feedback_text = `AI generated code based on instruction. Instruction Scores: Clarity(${data.clarity}), Effectiveness(${data.effectiveness}), Precision(${data.precision}).`;
-        user_input = { instruction };
-      } else if (selectedRole === 'driver' && 'feedback' in data) {
-        const { feedback, ...restScores } = data;
-        scores = restScores;
-        ai_feedback_text = feedback;
-        user_input = { code };
+      if (!response.ok) throw new Error('API request failed');
+      const data = await response.json();
+      setFeedback(data);
+
+      let aiResponseText = '';
+
+      if (role === 'driver') {
+        // Driver: AI gives feedback
+        aiResponseText = (data as DriverFeedback).feedback;
+      } else {
+        // Navigator: AI writes code
+        const navData = data as NavigatorFeedback;
+        aiResponseText = "I've updated the code based on your instruction. How does this look?";
+        if (navData.generatedCode) {
+          setCode(navData.generatedCode);
+        }
       }
-      
+
+      setChatHistory(prev => [...prev, { role: 'ai', text: aiResponseText, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+
+      if (ttsSupported) {
+        speak(aiResponseText);
+      }
+
+      // Log session (simplified)
       await fetch('/api/log-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           module_type: 'pair_programming',
-          task_name: selectedRole === 'driver' ? currentTask?.title : `Navigator Session`,
-          scores,
-          user_input,
-          ai_feedback: ai_feedback_text,
-        }),
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred.');
+          task_name: role === 'driver' ? task : 'Navigator Session',
+          scores: data,
+          user_input: { code: role === 'driver' ? code : undefined, instruction: role === 'navigator' ? userMessage : undefined },
+          ai_feedback: aiResponseText
+        })
+      }).catch(console.warn);
+
+
+    } catch (error) {
+      console.error(error);
+      setChatHistory(prev => [...prev, { role: 'ai', text: "Sorry, something went wrong processing your request.", timestamp }]);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="bg-background-light dark:bg-background-dark text-white min-h-screen flex flex-col font-display overflow-hidden">
+      {/* Global Navigation */}
       <Navigation />
-      <div className="max-w-screen-2xl mx-auto px-4 py-12">
-        <div className="text-center mb-10"><h1 className="text-4xl font-bold">👥 Pair Programming Simulation</h1></div>
-        <div className="grid lg:grid-cols-5 gap-8">
-          <div className="lg:col-span-2 space-y-6">
-            <Card>
-              <CardHeader><CardTitle>1. Choose Your Role</CardTitle></CardHeader>
-              <CardContent className="grid grid-cols-1 gap-3">
-                <Button variant={selectedRole === 'driver' ? 'default' : 'outline'} onClick={() => setSelectedRole('driver')} className="h-auto p-4 justify-start text-left"><div><div className="font-medium">🚗 Driver</div><div className="text-sm opacity-80 font-normal">I will write the code.</div></div></Button>
-                <Button variant={selectedRole === 'navigator' ? 'default' : 'outline'} onClick={() => setSelectedRole('navigator')} className="h-auto p-4 justify-start text-left"><div><div className="font-medium">🧭 Navigator</div><div className="text-sm opacity-80 font-normal">I will give directions.</div></div></Button>
-              </CardContent>
-            </Card>
-            <div className={selectedRole === 'navigator' ? 'opacity-50 pointer-events-none' : ''}>
-              <Card><CardHeader><CardTitle>2. Select a Task</CardTitle><CardDescription>Required for Driver role</CardDescription></CardHeader><CardContent>{tasks.map((task) => (<div key={task.id} onClick={() => setSelectedTask(task.id)} className={`cursor-pointer rounded-lg border-2 p-4 mb-3 ${selectedTask === task.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}><p className="font-medium">{task.title}</p></div>))}</CardContent></Card>
+
+      {/* Module Sub-Header & Tools */}
+      <header className="flex items-center justify-between border-b border-[#283039] bg-[#101922] px-6 py-3 flex-none h-14">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary">groups</span>
+          <h2 className="text-white text-base font-bold">Pair Programming</h2>
+        </div>
+        {/* Role Switcher */}
+        <div className="flex w-64 items-center justify-center rounded-lg bg-[#1c2127] p-1 border border-[#283039]">
+          <label className={`flex cursor-pointer h-8 grow items-center justify-center rounded-md px-2 text-xs font-bold uppercase tracking-wider transition-all ${role === 'driver' ? 'bg-primary text-white' : 'text-[#9dabb9] hover:text-white'}`}>
+            <span>Driver</span>
+            <input type="radio" className="hidden" checked={role === 'driver'} onChange={() => setRole('driver')} />
+          </label>
+          <label className={`flex cursor-pointer h-8 grow items-center justify-center rounded-md px-2 text-xs font-bold uppercase tracking-wider transition-all ${role === 'navigator' ? 'bg-primary text-white' : 'text-[#9dabb9] hover:text-white'}`}>
+            <span>Navigator</span>
+            <input type="radio" className="hidden" checked={role === 'navigator'} onChange={() => setRole('navigator')} />
+          </label>
+        </div>
+        <div className="flex items-center gap-3 w-[100px]"></div> {/* Spacer */}
+      </header>
+
+      {/* 3-Column Layout */}
+      <main className="flex flex-1 overflow-hidden h-[calc(100vh-64px)]">
+
+        {/* LEFT: Code Editor */}
+        <section className="flex flex-[2.5] flex-col border-r border-[#283039] bg-[#0d1117] overflow-hidden min-w-0">
+          <div className="flex border-b border-[#283039] bg-[#161b22] px-2 gap-1 overflow-x-auto flex-none">
+            <button className="flex items-center gap-2 border-b-2 border-primary bg-[#0d1117] px-4 py-2 text-sm font-medium text-white">
+              <span className="material-symbols-outlined text-sm text-yellow-500">terminal</span>
+              main.py
+            </button>
+            {/* Mock tabs */}
+            <button className="flex items-center gap-2 border-b-2 border-transparent px-4 py-2 text-sm font-medium text-[#9dabb9] hover:bg-white/5">
+              <span className="material-symbols-outlined text-sm text-blue-400">database</span>
+              schema.sql
+            </button>
+          </div>
+
+          <div className="flex-1 relative">
+            <textarea
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              readOnly={role === 'navigator'}
+              className="w-full h-full bg-[#0d1117] p-4 font-mono text-sm text-[#e6edf3] resize-none focus:outline-none leading-6 custom-scrollbar"
+              spellCheck={false}
+            />
+          </div>
+
+          <div className="flex items-center justify-between border-t border-[#283039] bg-[#0d1117] p-3 flex-none">
+            <div className="flex items-center gap-4 text-xs text-[#9dabb9]">
+              <span className="flex items-center gap-1"><span className="material-symbols-outlined text-sm">code</span> Python 3.10</span>
+              {role === 'driver' && <span className="flex items-center gap-1"><span className="material-symbols-outlined text-sm">edit</span> Editing...</span>}
+              {role === 'navigator' && <span className="flex items-center gap-1"><span className="material-symbols-outlined text-sm">lock</span> Read Only</span>}
             </div>
           </div>
-          <div className="lg:col-span-3 space-y-6">
-            <Card>
-              <CardHeader><CardTitle>3. The Session</CardTitle></CardHeader>
-              <CardContent>
-                {!selectedRole ? (<div className="min-h-[300px] flex items-center justify-center text-center text-muted-foreground bg-muted/50 rounded-lg"><p>Please select a role to begin.</p></div>) : (
-                  <div className="space-y-4">
-                    {selectedRole === 'driver' && (<div><Label htmlFor="code-editor" className="mb-2 block font-medium">Your Code (Driver)</Label><Textarea id="code-editor" value={code} onChange={(e) => setCode(e.target.value)} className="w-full min-h-[400px] font-mono text-sm bg-gray-950 text-gray-300 border-gray-700 rounded-md" spellCheck={false} /></div>)}
-                    {selectedRole === 'navigator' && (<div className="space-y-4"><div><Label className="mb-2 block">AI's Code (Driver)</Label><div className="w-full min-h-[300px] font-mono text-sm bg-gray-950 text-gray-300 border border-gray-700 rounded-md p-4 whitespace-pre-wrap">{code}</div></div><div><Label htmlFor="instruction-input" className="mb-2 block">Your Instruction (Navigator)</Label><Textarea id="instruction-input" value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="e.g., Create a function..." className="w-full min-h-[100px]" /></div></div>)}
-                    <div className="flex justify-end pt-4"><Button onClick={handleSubmit} disabled={isLoading}>{isLoading ? 'Waiting...' : 'Submit to Partner'}</Button></div>
-                  </div>)}
-              </CardContent>
-            </Card>
-            {error && (<Card className="border-destructive"><CardHeader><CardTitle className="text-destructive">⚠️ Error</CardTitle></CardHeader><CardContent><p className="text-destructive">{error}</p></CardContent></Card>)}
-            {feedback && !isLoading && (
-              <Card>
-                <CardHeader><CardTitle>🤖 AI Partner's Feedback</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {selectedRole === 'driver' && 'correctness' in feedback && (
+        </section>
+
+        {/* CENTER: Communication Log */}
+        <section className="flex flex-[1.5] flex-col border-r border-[#283039] bg-[#101922] overflow-hidden min-w-0">
+          <div className="flex items-center justify-between border-b border-[#283039] p-4 flex-none bg-[#101922]">
+            <h3 className="font-bold text-white flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary">chat_bubble</span>
+              Communication Log
+            </h3>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+            {chatHistory.length === 0 && (
+              <div className="text-center text-[#9dabb9] text-sm mt-10 opacity-50">
+                Start the session by {role === 'driver' ? 'submitting your code' : 'sending an instruction'}.
+              </div>
+            )}
+            {chatHistory.map((msg, i) => (
+              <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                <div className={`max-w-[85%] rounded-xl p-3 text-sm text-white shadow-lg ${msg.role === 'user' ? 'rounded-tr-none bg-primary' : 'rounded-tl-none bg-[#1c2127] border border-[#283039]'
+                  }`}>
+                  {msg.role === 'ai' && <p className="text-primary font-bold text-xs mb-1 uppercase">AI Partner</p>}
+                  <p className="whitespace-pre-wrap">{msg.text}</p>
+                </div>
+                <span className="mt-1 text-[10px] text-[#9dabb9] uppercase font-bold tracking-widest">
+                  {msg.role === 'user' ? 'You' : 'Gemini'} • {msg.timestamp}
+                </span>
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Chat Input */}
+          <div className="border-t border-[#283039] p-4 bg-[#101922] flex-none">
+            <div className="relative">
+              <textarea
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(); } }}
+                className="w-full rounded-lg bg-[#1c2127] border-[#283039] text-white text-sm focus:border-primary focus:ring-1 focus:ring-primary p-3 pr-12 resize-none"
+                placeholder={role === 'navigator' ? "Give an instruction to your AI partner..." : "Explain your logic or just submit current code..."}
+                rows={3}
+              ></textarea>
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                className="absolute bottom-3 right-3 text-primary hover:text-white transition-colors disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined">send</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* RIGHT: AI Feedback & Partner */}
+        <section className="flex flex-1 flex-col bg-[#0d1117] overflow-y-auto custom-scrollbar min-w-0 border-l border-[#283039]">
+          <div className="p-4 space-y-6">
+
+            {feedback ? (
+              <>
+                {/* Metrics */}
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-[#9dabb9] mb-4">Performance Metrics</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {role === 'driver' && 'correctness' in feedback ? (
                       <>
-                        <div><div className="flex justify-between mb-1"><Label>Correctness</Label><span className="font-semibold">{feedback.correctness}/100</span></div><Progress value={feedback.correctness} /></div>
-                        <div><div className="flex justify-between mb-1"><Label>Efficiency</Label><span className="font-semibold">{feedback.efficiency}/100</span></div><Progress value={feedback.efficiency} /></div>
-                        <div><div className="flex justify-between mb-1"><Label>Readability</Label><span className="font-semibold">{feedback.readability}/100</span></div><Progress value={feedback.readability} /></div>
-                        <div className="pt-4"><Label className="font-semibold">Feedback</Label><p className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap">{feedback.feedback}</p></div>
+                        <MetricCard label="Correctness" value={feedback.correctness} color="text-emerald-500" />
+                        <MetricCard label="Efficiency" value={feedback.efficiency} color="text-primary" />
                       </>
-                    )}
-                    {selectedRole === 'navigator' && 'clarity' in feedback && (
+                    ) : role === 'navigator' && 'clarity' in feedback ? (
                       <>
-                        <p className="text-sm text-muted-foreground">AI has evaluated your last instruction:</p>
-                        <div><div className="flex justify-between mb-1"><Label>Clarity</Label><span className="font-semibold">{feedback.clarity}/100</span></div><Progress value={feedback.clarity} /></div>
-                        <div><div className="flex justify-between mb-1"><Label>Effectiveness</Label><span className="font-semibold">{feedback.effectiveness}/100</span></div><Progress value={feedback.effectiveness} /></div>
-                        <div><div className="flex justify-between mb-1"><Label>Precision</Label><span className="font-semibold">{feedback.precision}/100</span></div><Progress value={feedback.precision} /></div>
+                        <MetricCard label="Clarity" value={feedback.clarity} color="text-emerald-500" />
+                        <MetricCard label="Effectiveness" value={feedback.effectiveness} color="text-primary" />
                       </>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Tips & Suggestions */}
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-[#9dabb9] mb-4">AI Partner Suggestions</h3>
+                  <div className="space-y-4">
+                    {(feedback.communication_tips || []).map((tip, i) => (
+                      <SuggestionCard key={i} title={tip.title} description={tip.description} icon="lightbulb" color="text-primary" borderColor="border-primary" />
+                    ))}
+                    {role === 'driver' && (feedback as DriverFeedback).refactoring_suggestions?.map((item, i) => (
+                      <SuggestionCard key={`refactor-${i}`} title={item.title} description={item.description} icon="auto_fix_high" color="text-emerald-500" borderColor="border-emerald-500" code={item.code} />
+                    ))}
+                    {role === 'driver' && (feedback as DriverFeedback).strategy_alerts?.map((item, i) => (
+                      <SuggestionCard key={`alert-${i}`} title={item.title} description={item.description} icon="warning" color="text-amber-500" borderColor="border-amber-500" />
+                    ))}
+                    {(!feedback.communication_tips?.length && !(feedback as DriverFeedback).refactoring_suggestions?.length) && (
+                      <p className="text-sm text-[#9dabb9] italic">No specific suggestions at this time. Keep going!</p>
                     )}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-64 text-center space-y-4">
+                <span className="material-symbols-outlined text-4xl text-[#283039]">analytics</span>
+                <p className="text-[#9dabb9] text-sm">AI analysis will appear here after you submit.</p>
+              </div>
             )}
+
+
           </div>
-        </div>
+        </section>
+
+      </main>
+      <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    </div>
+  );
+}
+
+function MetricCard({ label, value, color }: { label: string, value: number, color: string }) {
+  return (
+    <div className="rounded-xl border border-[#283039] bg-[#1c2127] p-4 text-center">
+      <div className="relative inline-flex items-center justify-center mb-2">
+        <svg className="w-16 h-16 transform -rotate-90">
+          <circle className="text-[#283039]" cx="32" cy="32" fill="transparent" r="28" stroke="currentColor" strokeWidth="4"></circle>
+          <circle className={color} cx="32" cy="32" fill="transparent" r="28" stroke="currentColor" strokeDasharray="175" strokeDashoffset={175 - (175 * value) / 100} strokeWidth="4" strokeLinecap="round"></circle>
+        </svg>
+        <span className="absolute text-sm font-bold text-white">{value}%</span>
       </div>
+      <p className="text-xs text-[#9dabb9] font-medium uppercase">{label}</p>
+    </div>
+  );
+}
+
+function SuggestionCard({ title, description, icon, color, borderColor, code }: { title: string, description: string, icon: string, color: string, borderColor: string, code?: string }) {
+  return (
+    <div className={`group rounded-xl border border-[#283039] bg-[#1c2127] p-4 hover:border-l-4 hover:${borderColor} transition-all cursor-pointer`}>
+      <div className={`flex items-center gap-2 mb-2 ${color}`}>
+        <span className="material-symbols-outlined text-lg">{icon}</span>
+        <span className="text-xs font-bold uppercase">{title}</span>
+      </div>
+      <p className="text-xs text-white mb-3 leading-relaxed">{description}</p>
+      {code && (
+        <div className="bg-[#0d1117] p-3 font-mono text-[10px] border border-[#283039] rounded text-[#e6edf3] whitespace-pre-wrap">
+          {code}
+        </div>
+      )}
     </div>
   );
 }
