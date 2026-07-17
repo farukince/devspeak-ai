@@ -3,13 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Amplify } from 'aws-amplify';
-import { awsConfig } from '@/lib/awsConfig';
 import { getCurrentUser, getDisplayName, type UserData } from '@/lib/authHelpers';
 import DashboardLayout from '@/components/DashboardLayout';
-
-// Configure Amplify
-Amplify.configure(awsConfig, { ssr: true });
 
 export default function ProfilePage() {
   const [user, setUser] = useState<UserData | null>(null);

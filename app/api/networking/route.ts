@@ -1,6 +1,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getNovaLiteResponse } from '@/lib/bedrockClient';
+import { getAiResponse } from '@/lib/aiClient';
 
 export async function POST(req: NextRequest) {
     try {
@@ -45,14 +45,14 @@ export async function POST(req: NextRequest) {
       Provide exactly 2 tips.
     `;
 
-        const rawResponse = await getNovaLiteResponse(prompt);
+        const rawResponse = await getAiResponse(prompt, 'fast');
         let evaluation;
 
         try {
             const cleanedResponse = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
             evaluation = JSON.parse(cleanedResponse);
         } catch (e) {
-            console.error("Failed to parse Nova's JSON response:", rawResponse);
+            console.error("Failed to parse AI JSON response:", rawResponse);
             return NextResponse.json({ error: "AI failed to return a valid JSON format." }, { status: 500 });
         }
 

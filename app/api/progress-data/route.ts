@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserPracticeSessions } from '@/lib/dynamoDBClient';
+import { getUserPracticeSessions } from '@/lib/dataClient';
 import { startOfDay } from 'date-fns';
 
 export async function GET(request: NextRequest) {
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized - userId required' }, { status: 401 });
     }
 
-    // 2. Get all practice sessions from DynamoDB
+    // 2. Get all practice sessions from data provider
     const sessions = await getUserPracticeSessions(userId);
 
     if (!sessions || sessions.length === 0) {

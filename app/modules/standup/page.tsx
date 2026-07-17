@@ -1,14 +1,86 @@
-'use client'
+'use client';
 
-import { useEffect, useState, useRef } from 'react'
-import Navigation from '../../../components/Navigation'
-import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis'
+import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import {
+  BarChart3,
+  Bell,
+  BookOpen,
+  Calendar,
+  ChevronRight,
+  Code2,
+  Grid2X2,
+  Info,
+  LogOut,
+  MessageSquare,
+  Mic,
+  PenTool,
+  RefreshCcw,
+  Search,
+  Send,
+  Settings,
+  Sparkles,
+  Timer,
+  Users,
+} from 'lucide-react';
+import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
 
 interface StandupFeedback {
   clarity: number;
   conciseness: number;
   impact: number;
   feedback: string;
+}
+
+const navItems = [
+  { href: '/dashboard', label: 'Dashboard', icon: Grid2X2 },
+  { href: '/modules/interview', label: 'Interview', icon: BookOpen },
+  { href: '/modules/standup', label: 'Stand-up', icon: MessageSquare },
+  { href: '/modules/code-review', label: 'Code Review', icon: Code2 },
+  { href: '/modules/writing', label: 'Writing', icon: PenTool },
+  { href: '/modules/pair-programming', label: 'Pair Programming', icon: Users },
+  { href: '/modules/progress', label: 'Progress', icon: BarChart3 },
+];
+
+const standupFields = [
+  {
+    key: 'yesterday',
+    title: 'Yesterday',
+    prompt: 'What did you complete since the last sync?',
+    placeholder: 'Fixed the memory leak in the data processing pipeline and implemented unit tests for the new parser.',
+    icon: RefreshCcw,
+    tone: 'violet',
+  },
+  {
+    key: 'today',
+    title: 'Today',
+    prompt: 'What are your goals for the current session?',
+    placeholder: 'I am integrating the new API endpoints and updating the documentation for the frontend team.',
+    icon: Calendar,
+    tone: 'violet',
+  },
+  {
+    key: 'blockers',
+    title: 'Blockers',
+    prompt: 'Any obstacles slowing your progress?',
+    placeholder: 'Waiting for the DevOps team to provide staging environment credentials.',
+    icon: Info,
+    tone: 'red',
+  },
+] as const;
+
+type StandupKey = (typeof standupFields)[number]['key'];
+
+function wordCount(value: string) {
+  return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function scoreLabel(feedback: StandupFeedback | null) {
+  if (!feedback) return 'Ready';
+  const average = (feedback.clarity + feedback.conciseness + feedback.impact) / 3;
+  if (average >= 85) return 'Excellent';
+  if (average >= 70) return 'Solid';
+  return 'Needs Focus';
 }
 
 export default function StandupModule() {
@@ -18,6 +90,7 @@ export default function StandupModule() {
   const [feedback, setFeedback] = useState<StandupFeedback | null>(null);
   const [loading, setLoading] = useState(false);
   const [autoReadEnabled, setAutoReadEnabled] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const feedbackRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -32,9 +105,12 @@ export default function StandupModule() {
 
   useEffect(() => {
     if (!ttsSupported) return;
-    const handlePageHide = () => { stop(); };
+    const handlePageHide = () => {
+      stop();
+    };
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener('beforeunload', handlePageHide);
+
     return () => {
       window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('beforeunload', handlePageHide);
@@ -42,13 +118,21 @@ export default function StandupModule() {
     };
   }, [ttsSupported, stop]);
 
+  const values: Record<StandupKey, string> = useMemo(() => ({ yesterday, today, blockers }), [yesterday, today, blockers]);
+  const setters: Record<StandupKey, (value: string) => void> = {
+    yesterday: setYesterday,
+    today: setToday,
+    blockers: setBlockers,
+  };
+  const totalWords = wordCount(yesterday) + wordCount(today) + wordCount(blockers);
+
   const handleFeedback = async () => {
-    if (!yesterday && !today && !blockers) {
-      // Simple validation feedback if needed
-      return;
-    }
+    if (!yesterday.trim() && !today.trim() && !blockers.trim()) return;
+
     setLoading(true);
     setFeedback(null);
+    setError(null);
+
     try {
       const response = await fetch('/api/standup', {
         method: 'POST',
@@ -56,40 +140,38 @@ export default function StandupModule() {
         body: JSON.stringify({
           yesterday: yesterday || 'Not provided',
           today: today || 'Not provided',
-          blockers: blockers || 'None'
+          blockers: blockers || 'None',
         }),
       });
 
-      if (!response.ok) { throw new Error(`API request failed`); }
+      if (!response.ok) throw new Error('API request failed');
 
       const result: StandupFeedback = await response.json();
       setFeedback(result);
 
-      if (ttsSupported && autoReadEnabled && result?.feedback) {
+      if (ttsSupported && autoReadEnabled && result.feedback) {
         speak(result.feedback);
       }
 
-      try {
-        await fetch('/api/log-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            module_type: 'standup',
-            task_name: 'Daily Stand-up',
-            scores: { clarity: result.clarity, conciseness: result.conciseness, impact: result.impact },
-            user_input: { yesterday, today, blockers },
-            ai_feedback: result.feedback
-          }),
-        });
-      } catch (logError) { console.warn('Could not log session:', logError); }
+      await fetch('/api/log-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: 'anonymous',
+          moduleType: 'standup',
+          taskName: 'Daily Stand-up',
+          scores: { clarity: result.clarity, conciseness: result.conciseness, impact: result.impact },
+          userInput: { yesterday, today, blockers },
+          aiFeedback: result.feedback,
+        }),
+      }).catch(console.warn);
 
-      // Scroll to feedback after a short delay to allow rendering
       setTimeout(() => {
         feedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
-
-    } catch (error) {
-      console.error('Error getting AI feedback:', error);
+    } catch (requestError) {
+      console.error('Error getting AI feedback:', requestError);
+      setError('AI provider is not ready yet. Your stand-up draft is safe here.');
     } finally {
       setLoading(false);
     }
@@ -100,221 +182,239 @@ export default function StandupModule() {
     setToday('');
     setBlockers('');
     setFeedback(null);
+    setError(null);
+    stop();
   };
 
   return (
-    <div className="bg-background-light dark:bg-background-dark text-slate-900 dark:text-white min-h-screen flex flex-col font-sans">
-      {/* Navigation placeholder or integration */}
-      <Navigation />
-
-      {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-[1440px] mx-auto px-6 py-6 md:py-10">
-
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-            <div>
-              <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight mb-2">Daily Stand-up Simulator</h1>
-              <p className="text-text-secondary text-base max-w-2xl">Practice your daily updates. Get instant AI feedback on clarity, conciseness, and impact.</p>
-            </div>
+    <main className="min-h-screen bg-black text-zinc-100 font-mono">
+      <div className="flex min-h-screen border border-zinc-800 bg-black">
+        <aside className="hidden lg:flex w-72 shrink-0 flex-col border-r border-zinc-800 bg-[#18191b]">
+          <div className="flex h-24 items-center px-10">
+            <Link href="/dashboard" className="flex items-center gap-3">
+              <span className="flex size-9 items-center justify-center rounded-lg bg-violet-400 text-black">
+                <Sparkles className="size-5" />
+              </span>
+              <span className="text-xl font-black tracking-tight text-violet-300">DevSpeak AI</span>
+            </Link>
           </div>
-        </div>
 
-        {/* Two Column Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <nav className="flex flex-1 flex-col gap-2 px-5 py-2">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const active = item.href === '/modules/standup';
 
-          {/* LEFT COLUMN: Input Zone */}
-          <div className="lg:col-span-7 flex flex-col gap-6">
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold transition-colors ${
+                    active ? 'bg-violet-500/15 text-violet-300' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
+                  }`}
+                >
+                  <Icon className="size-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
 
-            {/* Input 1: Yesterday */}
-            <div className="bg-surface-dark border border-border-dark rounded-xl p-5 shadow-sm">
-              <label className="flex flex-col gap-3 group">
-                <div className="flex justify-between items-center">
-                  <span className="text-white text-base font-semibold flex items-center gap-2">
-                    <span className="flex items-center justify-center size-6 rounded-full bg-primary/10 text-primary text-xs font-bold">1</span>
-                    Yesterday's Achievements
-                  </span>
-                </div>
-                <textarea
-                  value={yesterday}
-                  onChange={(e) => setYesterday(e.target.value)}
-                  className="w-full bg-[#111418] border border-input-border rounded-lg p-4 text-white placeholder:text-text-secondary/50 focus:border-primary focus:ring-1 focus:ring-primary outline-none resize-none min-h-[120px] transition-all"
-                  placeholder="What tasks did you complete yesterday? e.g., 'I finished the API integration...'"
-                ></textarea>
-              </label>
+          <div className="border-t border-zinc-800 px-5 py-6">
+            <Link href="/settings" className="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100">
+              <Settings className="size-4" />
+              Settings
+            </Link>
+            <Link href="/" className="mt-2 flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold text-red-400 hover:bg-red-500/10">
+              <LogOut className="size-4" />
+              Logout
+            </Link>
+          </div>
+        </aside>
+
+        <section className="flex min-w-0 flex-1 flex-col">
+          <header className="flex h-16 items-center justify-between border-b border-zinc-800 px-5 lg:px-10">
+            <div className="flex h-10 w-full max-w-md items-center gap-3 rounded-md bg-zinc-900 px-4 text-sm text-zinc-400 ring-1 ring-zinc-800">
+              <Search className="size-4" />
+              <span className="truncate">Search simulations, docs...</span>
+              <kbd className="ml-auto hidden rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300 sm:inline">⌘ K</kbd>
             </div>
 
-            {/* Input 2: Today */}
-            <div className="bg-surface-dark border border-border-dark rounded-xl p-5 shadow-sm">
-              <label className="flex flex-col gap-3 group">
-                <div className="flex justify-between items-center">
-                  <span className="text-white text-base font-semibold flex items-center gap-2">
-                    <span className="flex items-center justify-center size-6 rounded-full bg-primary/10 text-primary text-xs font-bold">2</span>
-                    Today's Plan
-                  </span>
-                </div>
-                <textarea
-                  value={today}
-                  onChange={(e) => setToday(e.target.value)}
-                  className="w-full bg-[#111418] border border-input-border rounded-lg p-4 text-white placeholder:text-text-secondary/50 focus:border-primary focus:ring-1 focus:ring-primary outline-none resize-none min-h-[120px] transition-all"
-                  placeholder="What will you work on today? e.g., 'I plan to write unit tests...'"
-                ></textarea>
-              </label>
-            </div>
-
-            {/* Input 3: Blockers */}
-            <div className="bg-surface-dark border border-border-dark rounded-xl p-5 shadow-sm">
-              <label className="flex flex-col gap-3 group">
-                <div className="flex justify-between items-center">
-                  <span className="text-white text-base font-semibold flex items-center gap-2">
-                    <span className="flex items-center justify-center size-6 rounded-full bg-red-500/10 text-red-400 text-xs font-bold">3</span>
-                    Current Blockers
-                  </span>
-                </div>
-                <textarea
-                  value={blockers}
-                  onChange={(e) => setBlockers(e.target.value)}
-                  className="w-full bg-[#111418] border border-input-border rounded-lg p-4 text-white placeholder:text-text-secondary/50 focus:border-red-400 focus:ring-1 focus:ring-red-400 outline-none resize-none min-h-[100px] transition-all"
-                  placeholder="Any impediments? e.g., 'I am waiting for designs...'"
-                ></textarea>
-              </label>
-            </div>
-
-            {/* Action Bar */}
-            <div className="flex items-center justify-between pt-2">
-              <button
-                onClick={handleClear}
-                className="text-text-secondary hover:text-white font-medium px-4 py-2 rounded-lg hover:bg-white/5 transition-colors"
-              >
-                Clear all
+            <div className="flex items-center gap-5">
+              <button type="button" className="relative rounded-md p-2 text-zinc-300 hover:bg-zinc-900">
+                <Bell className="size-5" />
+                <span className="absolute right-2 top-2 size-1.5 rounded-full bg-violet-400" />
               </button>
-              <button
-                onClick={handleFeedback}
-                disabled={loading}
-                className="bg-primary hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-lg shadow-lg shadow-blue-500/20 flex items-center gap-2 transition-all transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span>{loading ? 'Analyzing...' : 'Submit for Review'}</span>
-                {!loading && <span className="material-symbols-outlined text-[20px]">send</span>}
-              </button>
+              <div className="hidden h-7 w-px bg-zinc-800 sm:block" />
+              <div className="hidden items-center gap-3 text-right sm:flex">
+                <div>
+                  <p className="text-sm font-black text-white">Alex Dev</p>
+                  <p className="text-[10px] uppercase tracking-wide text-zinc-400">Lvl 24 Senior Eng</p>
+                </div>
+                <div className="relative flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-300 to-teal-300 text-lg">
+                  🧑🏻‍💻
+                  <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-black bg-emerald-400" />
+                </div>
+              </div>
+            </div>
+          </header>
+
+          <div className="border-b border-zinc-800 px-5 py-7 lg:px-10">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h1 className="text-3xl font-black tracking-tight text-white">Daily Stand-up Simulation</h1>
+                <p className="mt-2 text-sm text-zinc-400">
+                  <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs font-black text-white">Session #482</span>
+                  <span className="ml-2">Project: CloudScale Infrastructure • Sprint 42</span>
+                </p>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="text-right">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Elapsed Time</p>
+                  <p className="text-xl font-black text-violet-300">01:45</p>
+                </div>
+                <button type="button" className="rounded-lg border border-zinc-700 p-3 text-zinc-200 hover:border-violet-400">
+                  <Info className="size-5" />
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* RIGHT COLUMN: Feedback Panel */}
-          <div className="lg:col-span-5 flex flex-col gap-6 sticky top-24" ref={feedbackRef}>
+          <div className="flex-1 px-5 py-8 lg:px-10">
+            <section className="grid gap-6 xl:grid-cols-3">
+              {standupFields.map((field) => {
+                const Icon = field.icon;
+                const value = values[field.key];
 
-            {/* Loading State Placeholder */}
-            {loading && (
-              <div className="bg-surface-dark border border-border-dark rounded-xl p-10 flex flex-col items-center justify-center text-center animate-pulse">
-                <div className="size-12 rounded-full border-4 border-primary border-t-transparent animate-spin mb-4"></div>
-                <p className="text-white font-medium">Analyzing your update...</p>
-                <p className="text-text-secondary text-sm mt-2">Checking for clarity, conciseness, and impact.</p>
-              </div>
-            )}
-
-            {/* Empty State / Intro */}
-            {!feedback && !loading && (
-              <div className="bg-surface-dark border border-border-dark border-dashed rounded-xl p-10 flex flex-col items-center justify-center text-center">
-                <div className="text-4xl mb-4">👋</div>
-                <h3 className="text-white font-bold text-lg mb-2">Ready for Stand-up?</h3>
-                <p className="text-text-secondary text-sm">Fill in your update on the left and click submit to get instant feedback.</p>
-              </div>
-            )}
-
-            {/* Scorecard Section */}
-            {feedback && !loading && (
-              <>
-                <div className="bg-surface-dark border border-border-dark rounded-xl p-6 shadow-md relative overflow-hidden group">
-                  {/* Subtle decorative background gradient */}
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
-
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-lg font-bold text-white">Performance Score</h3>
-                    <div className="bg-green-500/10 text-green-400 px-3 py-1 rounded-full text-sm font-bold border border-green-500/20">
-                      {feedback.clarity > 80 && feedback.conciseness > 80 && feedback.impact > 80 ? 'Excellent' : 'Good'}
+                return (
+                  <article key={field.key} className="flex min-h-[360px] flex-col rounded-lg border border-zinc-800 bg-[#18191b] p-6">
+                    <div className={`mb-4 flex size-10 items-center justify-center rounded-md ${field.tone === 'red' ? 'bg-red-500/10 text-red-400' : 'bg-violet-500/15 text-violet-300'}`}>
+                      <Icon className="size-5" />
                     </div>
-                  </div>
-
-                  <div className="flex flex-col gap-5">
-                    {/* Clarity Metric */}
-                    <div>
-                      <div className="flex justify-between text-sm mb-2">
-                        <span className="text-white font-medium">Clarity</span>
-                        <span className="text-primary font-bold">{feedback.clarity}/100</span>
-                      </div>
-                      <div className="h-2 w-full bg-[#111418] rounded-full overflow-hidden">
-                        <div className="h-full bg-primary rounded-full" style={{ width: `${feedback.clarity}%` }}></div>
-                      </div>
+                    <h2 className="text-xl font-black text-white">{field.title}</h2>
+                    <p className="mt-2 min-h-10 text-sm font-bold text-zinc-400">{field.prompt}</p>
+                    <textarea
+                      value={value}
+                      onChange={(event) => {
+                        setters[field.key](event.target.value);
+                        setError(null);
+                      }}
+                      className="mt-4 flex-1 resize-none rounded-lg border border-zinc-900 bg-zinc-900/35 p-4 text-base font-bold leading-7 text-zinc-100 outline-none placeholder:text-zinc-200/80 focus:border-violet-400"
+                      placeholder={field.placeholder}
+                    />
+                    <div className="mt-4 flex justify-between text-xs font-bold text-zinc-400">
+                      <span>{wordCount(value)} words</span>
+                      <span>Target: 15-30 words</span>
                     </div>
+                  </article>
+                );
+              })}
+            </section>
 
-                    {/* Conciseness Metric */}
-                    <div>
-                      <div className="flex justify-between text-sm mb-2">
-                        <span className="text-white font-medium">Conciseness</span>
-                        <span className="text-orange-400 font-bold">{feedback.conciseness}/100</span>
-                      </div>
-                      <div className="h-2 w-full bg-[#111418] rounded-full overflow-hidden">
-                        <div className="h-full bg-orange-400 rounded-full" style={{ width: `${feedback.conciseness}%` }}></div>
-                      </div>
-                    </div>
-
-                    {/* Impact Metric */}
-                    <div>
-                      <div className="flex justify-between text-sm mb-2">
-                        <span className="text-white font-medium">Impact</span>
-                        <span className="text-green-400 font-bold">{feedback.impact}/100</span>
-                      </div>
-                      <div className="h-2 w-full bg-[#111418] rounded-full overflow-hidden">
-                        <div className="h-full bg-green-400 rounded-full" style={{ width: `${feedback.impact}%` }}></div>
-                      </div>
-                    </div>
-                  </div>
+            <section className="mt-8 border-t border-zinc-800 pt-12" ref={feedbackRef}>
+              <div className="mx-auto flex max-w-5xl flex-col items-center gap-8">
+                <div className="text-center">
+                  <div className="mx-auto mb-3 h-1 w-28 rounded-full bg-violet-400/40" />
+                  <p className="text-sm font-bold text-zinc-400">Click the microphone to start speaking</p>
                 </div>
 
-                {/* AI Feedback Detail */}
-                <div className="bg-surface-dark border border-border-dark rounded-xl flex flex-col shadow-md overflow-hidden">
-                  <div className="p-5 border-b border-border-dark bg-[#1c2127] flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                      <span className="material-symbols-outlined text-purple-400">auto_awesome</span>
-                      <h3 className="font-bold text-white">Gemini Analysis</h3>
-                    </div>
+                <div className="grid w-full items-center gap-5 md:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    className="justify-self-center rounded-lg border border-zinc-700 px-6 py-3 text-sm font-black text-white hover:border-violet-400"
+                  >
+                    <RefreshCcw className="mr-2 inline size-4" />
+                    Reset All
+                  </button>
 
-                    {ttsSupported && (
+                  <button
+                    type="button"
+                    onClick={() => setAutoReadEnabled((value) => !value)}
+                    className={`mx-auto flex size-20 items-center justify-center rounded-full shadow-2xl shadow-violet-500/30 transition ${
+                      autoReadEnabled ? 'bg-violet-400 text-black' : 'bg-zinc-800 text-zinc-300'
+                    }`}
+                    title={autoReadEnabled ? 'Auto read enabled' : 'Auto read disabled'}
+                  >
+                    <Mic className="size-7" />
+                  </button>
+
+                  <div className="flex flex-col gap-3 justify-self-center sm:flex-row">
+                    {ttsSupported && feedback && (
                       <button
-                        onClick={() => speaking ? pause() : (paused ? resume() : speak(feedback.feedback))}
-                        className="text-text-secondary hover:text-white transition-colors flex items-center gap-1 text-xs font-medium"
-                        title={speaking ? "Pause" : "Listen"}
+                        type="button"
+                        onClick={() => (speaking ? pause() : paused ? resume() : speak(feedback.feedback))}
+                        className="rounded-lg border border-zinc-700 px-5 py-3 text-sm font-black text-zinc-200 hover:border-violet-400"
                       >
-                        <span className="material-symbols-outlined text-[18px]">
-                          {speaking && !paused ? 'pause_circle' : 'volume_up'}
-                        </span>
-                        {speaking && !paused ? 'Pause' : 'Listen'}
+                        {speaking && !paused ? 'Pause Audio' : 'Listen'}
                       </button>
                     )}
-                  </div>
-
-                  <div className="p-6 overflow-y-auto max-h-[500px]">
-                    <p className="text-text-secondary text-sm leading-relaxed whitespace-pre-wrap">
-                      {feedback.feedback}
-                    </p>
-                  </div>
-
-                  <div className="p-4 bg-[#181c22] border-t border-border-dark">
                     <button
-                      onClick={handleClear}
-                      className="w-full py-2 rounded-lg border border-border-dark text-text-secondary hover:text-white hover:border-text-secondary transition-all text-sm font-medium"
+                      type="button"
+                      onClick={handleFeedback}
+                      disabled={loading || (!yesterday.trim() && !today.trim() && !blockers.trim())}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-teal-400 px-6 py-3 text-sm font-black text-black transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Try Again
+                      {loading ? 'Analyzing...' : 'Submit Stand-up'}
+                      <Send className="size-4" />
                     </button>
                   </div>
                 </div>
-              </>
-            )}
-          </div>
-        </div>
-      </main>
 
-      {/* Material Symbols Import (Ideally in head or layout, but included here for component isolation if needed) */}
-      <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
-    </div>
+                <div className="w-full rounded-lg border border-violet-500/30 bg-violet-500/5 p-5">
+                  <p className="mb-3 flex items-center gap-2 text-sm font-black text-zinc-500">
+                    <Sparkles className="size-4 text-violet-400" />
+                    AI Tip for Clarity
+                  </p>
+                  <p className="text-sm leading-6 text-zinc-300">
+                    {feedback
+                      ? feedback.feedback
+                      : 'Try to use more action-oriented verbs. Instead of saying “I am working on…”, try “I am developing…” or “I am integrating…”.'}
+                  </p>
+                  {error && <p className="mt-3 text-sm font-bold text-red-300">{error}</p>}
+                </div>
+
+                {feedback && (
+                  <div className="grid w-full gap-4 md:grid-cols-4">
+                    <div className="rounded-lg border border-zinc-800 bg-[#18191b] p-5">
+                      <p className="text-xs font-black uppercase text-zinc-400">Overall</p>
+                      <p className="mt-2 text-2xl font-black text-white">{scoreLabel(feedback)}</p>
+                    </div>
+                    {[
+                      ['Clarity', feedback.clarity, 'bg-violet-400'],
+                      ['Conciseness', feedback.conciseness, 'bg-orange-400'],
+                      ['Impact', feedback.impact, 'bg-teal-400'],
+                    ].map(([label, value, color]) => (
+                      <div key={label} className="rounded-lg border border-zinc-800 bg-[#18191b] p-5">
+                        <div className="flex justify-between text-xs font-black uppercase text-zinc-400">
+                          <span>{label}</span>
+                          <span>{value}/100</span>
+                        </div>
+                        <div className="mt-4 h-2 overflow-hidden rounded-full bg-zinc-900">
+                          <div className={`h-full rounded-full ${color}`} style={{ width: `${value}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 text-xs font-bold text-zinc-500">
+                  <Timer className="size-4" />
+                  {totalWords} total words prepared for this stand-up
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <footer className="flex flex-col gap-3 border-t border-zinc-800 px-5 py-5 text-xs text-zinc-400 lg:flex-row lg:items-center lg:justify-between lg:px-10">
+            <span>© 2024 DevSpeak AI • System Status: Operational</span>
+            <div className="flex gap-6">
+              <span>Documentation</span>
+              <span>API Reference</span>
+              <span>Privacy Policy</span>
+            </div>
+          </footer>
+        </section>
+      </div>
+    </main>
   );
 }

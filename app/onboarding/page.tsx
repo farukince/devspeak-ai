@@ -2,13 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Amplify } from 'aws-amplify';
-import { awsConfig } from '@/lib/awsConfig';
 import { getCurrentUser } from '@/lib/authHelpers';
-import { createUserProfile, updateUserProfile, getUserProfile } from '@/lib/dynamoDBClient';
-
-// Configure Amplify
-Amplify.configure(awsConfig, { ssr: true });
+import { createUserProfile, updateUserProfile, getUserProfile } from '@/lib/dataClient';
 
 export default function OnboardingPage() {
   const [jobTitle, setJobTitle] = useState('');
@@ -28,7 +23,7 @@ export default function OnboardingPage() {
       return;
     }
 
-    // Check if user profile exists in DynamoDB
+    // Check if user profile exists in the configured data provider.
     try {
       const profile = await getUserProfile(user.userId);
       if (profile?.jobTitle) {

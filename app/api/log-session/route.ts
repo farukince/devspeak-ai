@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { insertPracticeSession } from '@/lib/dynamoDBClient';
+import { insertPracticeSession } from '@/lib/dataClient';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required session data.' }, { status: 400 });
     }
 
-    // Insert into DynamoDB
+    // Insert into data provider
     const savedSession = await insertPracticeSession({
       userId,
       moduleType,

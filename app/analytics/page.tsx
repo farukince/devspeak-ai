@@ -2,14 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Amplify } from 'aws-amplify';
-import { awsConfig } from '@/lib/awsConfig';
 import { getCurrentUser, type UserData } from '@/lib/authHelpers';
 import DashboardLayout from '@/components/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-
-// Configure Amplify
-Amplify.configure(awsConfig, { ssr: true });
 
 export default function AnalyticsPage() {
   const [user, setUser] = useState<UserData | null>(null);

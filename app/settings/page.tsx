@@ -3,14 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from 'next-themes';
-import { Amplify } from 'aws-amplify';
-import { awsConfig } from '@/lib/awsConfig';
 import { getCurrentUser, getDisplayName, type UserData } from '@/lib/authHelpers';
 import Link from 'next/link';
 import DashboardLayout from '@/components/DashboardLayout';
-
-// Configure Amplify
-Amplify.configure(awsConfig, { ssr: true });
 
 export default function SettingsPage() {
   const [user, setUser] = useState<UserData | null>(null);
@@ -152,7 +147,7 @@ export default function SettingsPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-text-secondary">Version</span>
-                <span className="font-semibold">1.0.0 (AWS)</span>
+                <span className="font-semibold">1.0.0</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-text-secondary">Region</span>
@@ -160,7 +155,7 @@ export default function SettingsPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-text-secondary">AI Model</span>
-                <span className="font-semibold">Amazon Nova Pro & Lite</span>
+                <span className="font-semibold">Not configured</span>
               </div>
             </div>
           </div>

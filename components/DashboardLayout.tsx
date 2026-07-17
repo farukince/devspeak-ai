@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { signOut } from 'aws-amplify/auth';
 import React from 'react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
@@ -33,7 +32,6 @@ export default function DashboardLayout({
 
   const handleLogout = async () => {
     try {
-      await signOut();
       router.push('/');
       router.refresh();
     } catch (error) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getNovaProResponse } from '@/lib/bedrockClient';
+import { getAiResponse } from '@/lib/aiClient';
 
 export async function POST(req: NextRequest) {
   try {
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid role provided.' }, { status: 400 });
     }
 
-    const rawResponse = await getNovaProResponse(prompt);
+    const rawResponse = await getAiResponse(prompt, 'deep');
     let evaluation;
     try {
       evaluation = JSON.parse(rawResponse.replace(/```(json|javascript|js)?/g, '').replace(/```/g, '').trim());

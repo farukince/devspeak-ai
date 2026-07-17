@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   }
 
   if (code) {
-    // OAuth callback - Amplify handles this automatically
+    // OAuth callback placeholder. The next auth provider can complete this flow.
     // Just redirect to dashboard
     return NextResponse.redirect(`${requestUrl.origin}/dashboard`);
   }

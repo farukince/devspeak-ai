@@ -5,9 +5,7 @@ import { Button } from '@/components/ui/button'
 import { ThemeToggle } from './theme-toggle'
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { fetchAuthSession, signOut, fetchUserAttributes } from 'aws-amplify/auth'
-import { Amplify } from 'aws-amplify'
-import { awsConfig } from '@/lib/awsConfig'
+import { getCurrentUser } from '@/lib/authHelpers'
 
 import {
   DropdownMenu,
@@ -20,11 +18,7 @@ import {
 import {
   Avatar,
   AvatarFallback,
-  AvatarImage,
 } from "@/components/ui/avatar"
-
-// Configure Amplify
-Amplify.configure(awsConfig, { ssr: true });
 
 interface UserData {
   email?: string;
@@ -42,28 +36,13 @@ export default function Navigation() {
   }, []);
 
   const checkUser = async () => {
-    try {
-      const session = await fetchAuthSession();
-      if (session.tokens) {
-        const attributes = await fetchUserAttributes();
-        setUser({
-          email: attributes.email,
-          given_name: attributes.given_name,
-          family_name: attributes.family_name,
-        });
-      } else {
-        setUser(null);
-      }
-    } catch (error) {
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
+    const currentUser = await getCurrentUser();
+    setUser(currentUser);
+    setLoading(false);
   };
 
   const handleLogout = async () => {
     try {
-      await signOut({ global: true });
       setUser(null);
       // Clear any cached data
       if (typeof window !== 'undefined') {
