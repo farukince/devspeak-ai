@@ -1,61 +1,116 @@
 # DevSpeak AI
 
-Practice professional English for real software-team work: stand-ups, interviews, code reviews, pair programming, and technical writing.
+**An AI practice studio for developer English.**
 
-DevSpeak AI is not a general English course. You submit a realistic answer, receive structured AI feedback, retry with an improved version, and track progress over time.
+DevSpeak AI helps software engineers practice the English they actually use at work: daily stand-ups, technical interviews, pull requests, code reviews, and pair programming.
+
+It is not a vocabulary app and not a general English course. You answer a realistic workplace task, get structured AI coaching, retry with a better version, and watch your scores over time.
 
 <p align="center">
-  <img src="docs/screenshots/home-light.png" alt="DevSpeak AI landing page in light theme" width="48%" />
-  <img src="docs/screenshots/home-dark.png" alt="DevSpeak AI landing page in dark theme" width="48%" />
+  <img src="docs/screenshots/home-light.png" alt="DevSpeak AI landing page, light theme" width="49%" />
+  <img src="docs/screenshots/home-dark.png" alt="DevSpeak AI landing page, dark theme" width="49%" />
 </p>
 
-<p align="center"><em>Light and dark landing page — same layout, grayscale theme.</em></p>
+<p align="center">Landing page in light and dark theme.</p>
+
+## Problem
+
+Many developers can write code, but struggle to communicate that work in English:
+
+- stand-up updates that ramble or skip blockers
+- interview answers that are technically right but poorly structured
+- PRs, bug reports, and Slack messages that sound unclear or too abrupt
+- code-review comments that are either too soft or too harsh
+- pair-programming talk that loses the other person
+
+DevSpeak AI turns those moments into short, repeatable practice sessions with measurable feedback.
+
+## Who it is for
+
+- Junior to mid-level developers targeting remote or international teams
+- Engineers around **B1–B2 English** who need workplace fluency, not grammar drills
+- Anyone who wants to rehearse stand-ups, interviews, and written technical communication before doing them live
 
 ## What you can practice
 
-| Module | What you do | Voice |
-| --- | --- | --- |
-| **Daily Stand-up** | Yesterday / Today / Blockers updates | Yes |
-| **Technical Interview** | Role-based questions with technical + communication scores | Yes |
-| **Technical Writing** | PRs, bug reports, READMEs, docs, Slack messages | — |
-| **Code Review** | Reviewer comments or author responses | — |
-| **Pair Programming** | Driver and navigator communication | — |
-| **Progress** | Completed sessions, score trends, focus areas | — |
+| Module | Scenario | Input | What the AI scores |
+| --- | --- | --- | --- |
+| **Daily Stand-up** | Yesterday / Today / Blockers | Text or voice | Clarity, structure, completeness |
+| **Technical Interview** | Role-based interview questions | Text or voice | Technical accuracy, depth, communication |
+| **Technical Writing** | PR, bug report, README, docs, Slack | Text | Tone, structure, usefulness |
+| **Code Review** | Reviewer comment or author reply | Text | Diplomacy, specificity, actionability |
+| **Pair Programming** | Driver or navigator talk | Text | Clarity of instruction and collaboration |
+| **Progress** | Your history | — | Trends, focus areas, completed sessions |
 
-The UI only surfaces features the backend actually supports.
+Voice transcription is available in **Stand-up** and **Interview** only. The interface shows what the backend can actually do.
 
-## How a practice session works
+## Practice loop
+
+Every module follows the same flow:
+
+1. Pick a context (role, task type, or scenario).
+2. Write an answer, or record voice and confirm the transcript.
+3. Submit once. Duplicate submits are blocked with a request id.
+4. Receive structured feedback: overall score, summary, strengths, improvements, an improved answer, and category scores.
+5. Retry with the improved answer, or load an earlier attempt from history.
+6. The session is saved. Dashboard and Progress update from completed work only.
 
 ```text
-Choose a module
-→ Write or speak an answer
-→ Get structured AI evaluation
-→ Retry with the improved answer
-→ Session is saved
-→ Dashboard and Progress update
+Sign in → coaching profile
+       → choose a module
+       → answer
+       → AI evaluation
+       → retry
+       → dashboard / progress
 ```
 
-Feedback typically includes an overall score, summary, strengths, improvements, an improved answer, and category scores.
-
-## Screenshots
+## Product screenshots
 
 ### Landing
 
-![Landing page](docs/screenshots/home-light.png)
+The public page states the product in one screen: who it is for, what you practice, and that voice exists only where transcription is wired.
+
+![DevSpeak AI landing page](docs/screenshots/home-light.png)
 
 ### Sign in
 
-![Login page](docs/screenshots/login.png)
+Email/password and Google sign-in. After authentication, incomplete profiles go to onboarding; everyone else lands on the dashboard.
 
-After sign-in, a persistent sidebar stays across Dashboard, practice modules, Progress, Profile, and Settings. Theme can be light, dark, or system.
+![DevSpeak AI sign-in](docs/screenshots/login.png)
 
-## Stack
+Inside the app, a single collapsible sidebar stays on Dashboard, all five practice modules, Progress, Profile, and Settings. Theme can be light, dark, or system.
 
-- **App:** Next.js 15, React 19, TypeScript, Tailwind CSS
-- **UI:** Headless UI + native HTML components, Lucide icons
-- **Auth & data:** Supabase Auth + PostgreSQL with RLS
-- **AI:** Google Gemini for evaluation and voice transcription
-- **Validation:** Zod request/response schemas
+## Architecture
+
+```text
+Browser  →  Next.js App Router
+                │
+                ├── Middleware   session + protected routes
+                ├── Pages        practice UI, dashboard, settings
+                └── API routes   validate → rate-limit → AI → persist
+                                      │
+                          ┌───────────┴───────────┐
+                          ▼                       ▼
+                     Google Gemini           Supabase Postgres
+                     evaluate / transcribe   RLS, own-data only
+```
+
+- **Auth:** Supabase email/password and Google OAuth, cookie sessions.
+- **Data:** profiles, practice sessions, evaluations, and AI run logs. Row Level Security keeps each user’s data private.
+- **AI:** Gemini evaluates answers against Zod schemas. Voice audio is transcribed in memory and is not stored.
+- **Safety:** authenticated routes, request size limits, schema validation, rate limits, and prompt isolation for user-provided text.
+
+Deleting an account removes the profile, sessions, evaluations, and AI logs for that user.
+
+## Tech stack
+
+| Layer | Choice |
+| --- | --- |
+| App | Next.js 15, React 19, TypeScript |
+| UI | Tailwind CSS, Headless UI, Lucide |
+| Auth & database | Supabase Auth + PostgreSQL + RLS |
+| AI | Google Gemini |
+| Validation & tests | Zod, Vitest |
 
 ## Run locally
 
@@ -64,7 +119,7 @@ npm install
 cp .env.example .env.local
 ```
 
-Fill in:
+Required environment variables:
 
 ```bash
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
@@ -74,15 +129,13 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-Then apply the migrations in `supabase/migrations` to your Supabase project and start the app:
+Apply the SQL in `supabase/migrations` to your Supabase project, then:
 
 ```bash
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
-
-Useful commands:
 
 ```bash
 npm run type-check
@@ -91,18 +144,19 @@ npm run lint
 npm run build
 ```
 
-## Project layout
+## Repository map
 
 ```text
-app/            Pages and API routes
-components/     App shell, voice recorder, shared UI
-lib/ai/         Prompts, schemas, evaluation, transcription
-lib/auth/       Supabase session and middleware
-lib/database/   Persistence layer
-supabase/       Migrations and RLS tests
-tests/          Contract and security tests
+app/            pages and API routes
+components/     app shell, voice recorder, shared UI
+lib/ai/         prompts, schemas, evaluation, transcription
+lib/auth/       session and middleware
+lib/database/   persistence
+supabase/       migrations and RLS tests
+tests/          contract and security tests
+docs/screenshots/
 ```
 
-## Privacy
+## Privacy in one paragraph
 
-Practice answers, transcripts, and evaluations are stored per user under Row Level Security. See [Privacy](app/privacy/page.tsx) in the app for the product-facing policy.
+Answers, transcripts, and evaluations belong to the signed-in user. Audio is transcribed on the server and discarded. Gemini keys stay on the server. The in-app Privacy page and Settings → Delete account cover the rest.
