@@ -1,141 +1,91 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getCurrentUser } from '@/lib/authHelpers';
-import { createUserProfile, updateUserProfile, getUserProfile } from '@/lib/dataClient';
+import { ProfileForm, type ProfileFormValues } from '@/components/ProfileForm';
+import { getCurrentUser, type UserData } from '@/lib/authHelpers';
+import { createUserProfile, getUserProfile, updateUserProfile, type UserProfile } from '@/lib/dataClient';
+import { isProfileComplete } from '@/lib/profile';
+
+function defaultValues(user: UserData, profile: UserProfile | null): ProfileFormValues {
+  const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Istanbul';
+  const englishLevel = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'].includes(profile?.englishLevel ?? '')
+    ? profile?.englishLevel as ProfileFormValues['englishLevel']
+    : 'B1';
+  const experienceLevel = ['Junior', 'Mid-level', 'Senior', 'Lead'].includes(profile?.experienceLevel ?? '')
+    ? profile?.experienceLevel as ProfileFormValues['experienceLevel']
+    : 'Mid-level';
+
+  return {
+    displayName: profile?.fullName ?? [user.given_name, user.family_name].filter(Boolean).join(' '),
+    jobTitle: profile?.jobTitle ?? '',
+    experienceLevel,
+    englishLevel,
+    nativeLanguage: profile?.nativeLanguage ?? '',
+    timezone: profile?.timezone ?? browserTimezone,
+  };
+}
 
 export default function OnboardingPage() {
-  const [jobTitle, setJobTitle] = useState('');
-  const [englishLevel, setEnglishLevel] = useState('Intermediate');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<UserData | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
-    checkAuth();
-  }, []);
-
-  const checkAuth = async () => {
-    const user = await getCurrentUser();
-    if (!user) {
-      router.push('/login');
-      return;
-    }
-
-    // Check if user profile exists in the configured data provider.
-    try {
-      const profile = await getUserProfile(user.userId);
-      if (profile?.jobTitle) {
-        router.push('/dashboard');
+    const load = async () => {
+      try {
+        const currentUser = await getCurrentUser();
+        if (!currentUser) {
+          router.replace('/login');
+          return;
+        }
+        const currentProfile = await getUserProfile(currentUser.userId);
+        if (isProfileComplete(currentProfile)) {
+          router.replace('/dashboard');
+          return;
+        }
+        setUser(currentUser);
+        setProfile(currentProfile);
+      } catch (error) {
+        setLoadError(error instanceof Error ? error.message : 'Profile could not be loaded.');
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error checking profile:', error);
+    };
+    void load();
+  }, [router]);
+
+  const save = async (values: ProfileFormValues) => {
+    if (!user) throw new Error('Authentication required.');
+    const updates = { ...values, fullName: values.displayName, onboardingCompleted: true };
+    if (profile) {
+      await updateUserProfile(user.userId, updates);
+    } else {
+      await createUserProfile({ userId: user.userId, email: user.email ?? '', ...updates });
     }
+    router.replace('/dashboard');
+    router.refresh();
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
+  if (loading) {
+    return <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">Loading profile...</div>;
+  }
 
-    try {
-      const user = await getCurrentUser();
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      // Check if profile exists
-      const existingProfile = await getUserProfile(user.userId);
-
-      if (existingProfile) {
-        // Update existing profile
-        await updateUserProfile(user.userId, {
-          jobTitle,
-          englishLevel,
-          onboardingCompleted: true,
-        });
-      } else {
-        // Create new profile
-        await createUserProfile({
-          userId: user.userId,
-          email: user.email || '',
-          firstName: user.given_name,
-          lastName: user.family_name,
-          fullName: `${user.given_name || ''} ${user.family_name || ''}`.trim(),
-          jobTitle,
-          englishLevel,
-          onboardingCompleted: true,
-        });
-      }
-
-      router.push('/dashboard');
-    } catch (error: any) {
-      console.error('Error updating profile:', error);
-      setError(error.message || 'Failed to update profile');
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (loadError || !user) {
+    return <div className="flex min-h-screen items-center justify-center bg-background p-6 text-red-500">{loadError ?? 'Authentication required.'}</div>;
+  }
 
   return (
-    <div className="min-h-screen bg-warm-white dark:bg-background-dark flex items-center justify-center p-4">
-      <div className="max-w-md w-full bg-cream dark:bg-surface-dark border border-cream-dark/40 dark:border-border-dark rounded-2xl p-8 shadow-lg">
-        <div className="text-center mb-8">
-          <span className="text-5xl mb-4 block">🎯</span>
-          <h1 className="text-2xl font-bold mb-2">Complete Your Profile</h1>
-          <p className="text-text-secondary">Help us personalize your experience</p>
+    <main className="min-h-screen bg-background px-4 py-10">
+      <div className="mx-auto w-full max-w-3xl rounded-lg border border-border bg-card p-6 md:p-8">
+        <div className="mb-8 text-center">
+          <h1 className="text-3xl font-semibold tracking-tight">Complete your profile</h1>
+          <p className="mt-2 text-sm text-muted-foreground">We use these details to personalize technical communication practice.</p>
         </div>
-
-        {error && (
-          <div className="mb-6 p-3 rounded-xl bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="jobTitle" className="block text-sm font-semibold mb-2">
-              Job Title
-            </label>
-            <input
-              type="text"
-              id="jobTitle"
-              value={jobTitle}
-              onChange={(e) => setJobTitle(e.target.value)}
-              placeholder="e.g. Senior Frontend Engineer"
-              required
-              className="w-full px-4 py-3 rounded-xl border border-cream-dark/40 dark:border-border-dark bg-warm-white dark:bg-background-dark focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="englishLevel" className="block text-sm font-semibold mb-2">
-              English Level
-            </label>
-            <select
-              id="englishLevel"
-              value={englishLevel}
-              onChange={(e) => setEnglishLevel(e.target.value)}
-              required
-              className="w-full px-4 py-3 rounded-xl border border-cream-dark/40 dark:border-border-dark bg-warm-white dark:bg-background-dark focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="Beginner">Beginner</option>
-              <option value="Intermediate">Intermediate</option>
-              <option value="Advanced">Advanced</option>
-              <option value="Native">Native</option>
-            </select>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 rounded-full bg-gradient-to-r from-primary to-primary-dark hover:from-primary-light hover:to-primary text-white font-semibold shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Saving...' : 'Continue to Dashboard'}
-          </button>
-        </form>
+        <ProfileForm initialValues={defaultValues(user, profile)} submitLabel="Continue to Dashboard" onSubmit={save} />
       </div>
-    </div>
+    </main>
   );
 }

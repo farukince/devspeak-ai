@@ -1,91 +1,188 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAiResponse } from '@/lib/aiClient';
+import { evaluateStructured } from '@/lib/aiClient';
+import { buildPairProgrammingPrompt, PAIR_PROGRAMMING_PROMPT_VERSION } from '@/lib/ai/prompts/pairProgramming';
+import { EVALUATOR_SYSTEM_INSTRUCTION } from '@/lib/ai/prompts/shared';
+import { aiRouteError } from '@/lib/ai/route';
+import { driverResponseSchema, navigatorResponseSchema } from '@/lib/ai/schemas';
+import { getServerDatabase } from '@/lib/database/server';
+import type { EvaluationRecord, PracticeSessionRecord } from '@/lib/database/types';
+import { enforceRateLimit, readJsonWithLimit } from '@/lib/security/api';
+import { pairProgrammingAnswerSchema, pairProgrammingRequestSchema } from '@/lib/validation/pairProgramming';
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { role, task, code, instruction } = body;
+const PAIR_PROGRAMMING_SCHEMA_VERSION = '2';
+const ATTEMPT_LIMIT = 10;
 
-    if (!role) {
-      return NextResponse.json({ error: 'Role is required.' }, { status: 400 });
-    }
+function average(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
 
-    let prompt = '';
-    let responseKeys: string[] = [];
+function toPairProgrammingEvaluation(evaluation: EvaluationRecord | null) {
+  if (!evaluation) return null;
+  const common = {
+    summary: evaluation.summary,
+    strengths: evaluation.strengths,
+    improvements: evaluation.improvements,
+    improvedAnswer: evaluation.improvedAnswer,
+    communication_tips: evaluation.details.communication_tips,
+  };
+  return evaluation.details.role === 'driver'
+    ? driverResponseSchema.safeParse({
+        ...common,
+        correctness: evaluation.categoryScores.correctness,
+        efficiency: evaluation.categoryScores.efficiency,
+        readability: evaluation.categoryScores.readability,
+      })
+    : navigatorResponseSchema.safeParse({
+        ...common,
+        clarity: evaluation.categoryScores.clarity,
+        effectiveness: evaluation.categoryScores.effectiveness,
+        precision: evaluation.categoryScores.precision,
+        generatedCode: evaluation.details.generatedCode,
+      });
+}
 
-    switch (role) {
-      case 'driver':
-        if (!code || !task) {
-          return NextResponse.json({ error: 'Code and task are required for the driver role.' }, { status: 400 });
-        }
-        responseKeys = ['correctness', 'efficiency', 'readability', 'feedback', 'communication_tips'];
-        prompt = `
-          You are a "Navigator" in a pair programming session. Your partner, the "Driver", has written code for the task: "${task}".
-          Their Code:
-          \`\`\`javascript
-          ${code}
-          \`\`\`
-          Evaluate their code quality and communication style.
-
-          **Output Format:**
-          Your response MUST be a valid JSON object with:
-          - "correctness" (number 0-100)
-          - "efficiency" (number 0-100)
-          - "readability" (number 0-100)
-          - "feedback" (string): Concise summary.
-          - "communication_tips": Array of objects { "title": string, "description": string, "type": "tip"|"warning" }.
-          - "refactoring_suggestions": Array of objects { "title": string, "description": string, "code": string }.
-          - "strategy_alerts": Array of objects { "title": string, "description": string, "type": "warning" }.
-        `;
-        break;
-
-      case 'navigator':
-        if (!instruction) {
-          return NextResponse.json({ error: 'Instruction is required for the navigator role.' }, { status: 400 });
-        }
-        responseKeys = ['clarity', 'effectiveness', 'precision', 'generatedCode', 'communication_tips'];
-        prompt = `
-          You are a "Driver" in a pair programming session. Your "Navigator" gave you an instruction: "${instruction}".
-          Your task is twofold:
-          1. Write the code that implements the instruction.
-          2. Evaluate the quality of the instruction itself.
-
-          **Output Format:**
-          Your response MUST be a valid JSON object with:
-          - "clarity" (number 0-100)
-          - "effectiveness" (number 0-100)
-          - "precision" (number 0-100)
-          - "generatedCode" (string): The code block.
-          - "communication_tips": Array of objects { "title": string, "description": string, "type": "tip"|"warning" }.
-        `;
-        break;
-
-      default:
-        return NextResponse.json({ error: 'Invalid role provided.' }, { status: 400 });
-    }
-
-    const rawResponse = await getAiResponse(prompt, 'deep');
-    let evaluation;
+async function attemptResponse(
+  database: Awaited<ReturnType<typeof getServerDatabase>>,
+  session: PracticeSessionRecord
+) {
+  const answer = (() => {
     try {
-      evaluation = JSON.parse(rawResponse.replace(/```(json|javascript|js)?/g, '').replace(/```/g, '').trim());
-    } catch (e) {
-      return NextResponse.json({ error: "AI failed to return a valid JSON format." }, { status: 500 });
+      const parsed = pairProgrammingAnswerSchema.safeParse(JSON.parse(session.userAnswer));
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
     }
+  })();
+  const parsedEvaluation = toPairProgrammingEvaluation(await database.evaluations.readBySession(session.id));
+  return {
+    id: session.id,
+    createdAt: session.createdAt,
+    status: session.status,
+    answer,
+    evaluation: parsedEvaluation?.success ? parsedEvaluation.data : null,
+  };
+}
 
-    // Validate response
-    for (const key of responseKeys) {
-      if (typeof evaluation[key] === 'undefined') {
-        return NextResponse.json({ error: `AI response missing key: ${key}` }, { status: 500 });
-      }
-      if (typeof evaluation[key] === 'number') {
-        evaluation[key] = Math.max(0, Math.min(100, evaluation[key]));
-      }
-    }
-
-    return NextResponse.json(evaluation);
-
+export async function GET() {
+  try {
+    const database = await getServerDatabase();
+    const sessions = await database.sessions.list({ moduleType: 'pair_programming', limit: ATTEMPT_LIMIT });
+    const attempts = await Promise.all(sessions.map((session) => attemptResponse(database, session)));
+    return NextResponse.json({ attempts });
   } catch (error) {
-    console.error('Error in /api/pair-programming:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return aiRouteError(error);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  let database: Awaited<ReturnType<typeof getServerDatabase>> | null = null;
+  let sessionId: string | null = null;
+
+  try {
+    database = await getServerDatabase();
+    await enforceRateLimit(database.client, 'pair-programming:evaluate', 10);
+    const input = await readJsonWithLimit(request, pairProgrammingRequestSchema, 48_000);
+    const answer = input.role === 'driver'
+      ? { role: input.role, task: input.task, code: input.code }
+      : { role: input.role, instruction: input.instruction, code: input.code };
+    const session = await database.sessions.create({
+      moduleType: 'pair_programming',
+      clientRequestId: input.clientRequestId,
+      inputMode: 'written',
+      userAnswer: JSON.stringify(answer),
+      durationSeconds: input.durationSeconds,
+      status: 'processing',
+    });
+    sessionId = session.id;
+
+    const stored = toPairProgrammingEvaluation(await database.evaluations.readBySession(session.id));
+    if (stored?.success) {
+      if (session.status !== 'completed') {
+        await database.sessions.update(session.id, {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          durationSeconds: input.durationSeconds,
+        });
+      }
+      return NextResponse.json({ sessionId: session.id, evaluation: stored.data });
+    }
+    await database.sessions.update(session.id, {
+      status: 'processing',
+      userAnswer: JSON.stringify(answer),
+      completedAt: null,
+      durationSeconds: input.durationSeconds,
+    });
+    const profile = await database.profiles.read();
+    const profileContext = {
+      jobTitle: profile?.jobTitle ?? null,
+      englishLevel: profile?.englishLevel ?? null,
+    };
+    const result = input.role === 'driver'
+      ? await evaluateStructured({
+          prompt: buildPairProgrammingPrompt({ ...input, profile: profileContext }),
+          schema: driverResponseSchema,
+          mode: 'deep',
+          promptVersion: PAIR_PROGRAMMING_PROMPT_VERSION,
+          systemInstruction: EVALUATOR_SYSTEM_INSTRUCTION,
+          sessionId: session.id,
+        })
+      : await evaluateStructured({
+          prompt: buildPairProgrammingPrompt({ ...input, profile: profileContext }),
+          schema: navigatorResponseSchema,
+          mode: 'deep',
+          promptVersion: PAIR_PROGRAMMING_PROMPT_VERSION,
+          systemInstruction: EVALUATOR_SYSTEM_INSTRUCTION,
+          sessionId: session.id,
+        });
+    const categoryScores: Record<string, number> = 'correctness' in result.data
+      ? {
+          correctness: result.data.correctness,
+          efficiency: result.data.efficiency,
+          readability: result.data.readability,
+        }
+      : {
+          clarity: result.data.clarity,
+          effectiveness: result.data.effectiveness,
+          precision: result.data.precision,
+        };
+    const details = 'correctness' in result.data
+      ? {
+          role: input.role,
+          communication_tips: result.data.communication_tips,
+        }
+      : {
+          role: input.role,
+          communication_tips: result.data.communication_tips,
+          generatedCode: result.data.generatedCode,
+        };
+
+    await database.evaluations.create({
+      sessionId: session.id,
+      overallScore: average(Object.values(categoryScores)),
+      categoryScores,
+      summary: result.data.summary,
+      strengths: result.data.strengths,
+      improvements: result.data.improvements,
+      improvedAnswer: result.data.improvedAnswer,
+      promptVersion: PAIR_PROGRAMMING_PROMPT_VERSION,
+      schemaVersion: PAIR_PROGRAMMING_SCHEMA_VERSION,
+      modelName: result.model,
+      details,
+    });
+    await database.sessions.update(session.id, {
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      durationSeconds: input.durationSeconds,
+    });
+    return NextResponse.json({ sessionId: session.id, evaluation: result.data }, { status: 201 });
+  } catch (error) {
+    if (database && sessionId) {
+      try {
+        await database.sessions.update(sessionId, { status: 'failed' });
+      } catch (updateError) {
+        console.error('Failed to mark pair programming session as failed:', updateError);
+      }
+    }
+    return aiRouteError(error);
   }
 }

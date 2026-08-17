@@ -1,56 +1,150 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAiResponse } from '@/lib/aiClient';
+import { evaluateStructured } from '@/lib/aiClient';
+import { buildStandupPrompt, STANDUP_PROMPT_VERSION } from '@/lib/ai/prompts/standup';
+import { EVALUATOR_SYSTEM_INSTRUCTION } from '@/lib/ai/prompts/shared';
+import { aiRouteError } from '@/lib/ai/route';
+import { standupResponseSchema, type StandupEvaluation } from '@/lib/ai/schemas';
+import { getServerDatabase } from '@/lib/database/server';
+import type { EvaluationRecord, PracticeSessionRecord } from '@/lib/database/types';
+import { standupAnswerSchema, standupRequestSchema, type StandupAnswer } from '@/lib/validation/standup';
+import { enforceRateLimit, readJsonWithLimit } from '@/lib/security/api';
 
-export async function POST(req: NextRequest) {
+const STANDUP_SCHEMA_VERSION = '2';
+const ATTEMPT_LIMIT = 10;
+
+function parseAnswer(value: string): StandupAnswer | null {
   try {
-    const body = await req.json();
-    const { yesterday, today, blockers } = body;
+    const parsed = standupAnswerSchema.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
 
-    if (!yesterday || !today) {
-      return NextResponse.json(
-        { error: 'Yesterday and Today fields are required.' },
-        { status: 400 }
-      );
-    }
+function toStandupEvaluation(evaluation: EvaluationRecord | null): StandupEvaluation | null {
+  if (!evaluation) return null;
+  const parsed = standupResponseSchema.safeParse({
+    overallScore: evaluation.overallScore,
+    categoryScores: evaluation.categoryScores,
+    summary: evaluation.summary,
+    strengths: evaluation.strengths,
+    improvements: evaluation.improvements,
+    improvedAnswer: evaluation.improvedAnswer,
+    nextExercise: evaluation.nextExercise ?? undefined,
+  });
+  return parsed.success ? parsed.data : null;
+}
 
-    // Gemini için detaylı ve JSON çıktısı isteyen yeni prompt
-    const prompt = `
-      You are an experienced Senior Software Engineer and a helpful team lead reviewing a daily stand-up update.
-      Your goal is to provide a structured evaluation with scores and constructive feedback.
+async function attemptResponse(
+  database: Awaited<ReturnType<typeof getServerDatabase>>,
+  session: PracticeSessionRecord
+) {
+  const evaluation = await database.evaluations.readBySession(session.id);
+  return {
+    id: session.id,
+    createdAt: session.createdAt,
+    status: session.status,
+    answer: parseAnswer(session.userAnswer),
+    evaluation: toStandupEvaluation(evaluation),
+  };
+}
 
-      Here is the team member's update:
-      - **Yesterday's Accomplishments:** "${yesterday}"
-      - **Today's Plan:** "${today}"
-      - **Current Blockers:** "${blockers || 'None mentioned'}"
-
-      **Your Task:**
-      Evaluate the update based on three criteria and provide a score from 0 to 100 for each. Also, provide overall textual feedback.
-
-      **Evaluation Criteria:**
-      1.  **Clarity (0-100):** How clear and easy to understand is the update?
-      2.  **Conciseness (0-100):** Is the update brief and to the point, without unnecessary details?
-      3.  **Impact (0-100):** Does the update effectively communicate the impact of the work done and the goals for today?
-
-      **Output Format:**
-      Your response MUST be a valid JSON object with the following keys: "clarity" (number), "conciseness" (number), "impact" (number), and "feedback" (string).
-      Example: { "clarity": 85, "conciseness": 90, "impact": 75, "feedback": "Great update! Your goals for today are very clear..." }
-    `;
-
-    const rawResponse = await getAiResponse(prompt, 'fast');
-    let evaluation;
-
-    try {
-      const cleanedResponse = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-      evaluation = JSON.parse(cleanedResponse);
-    } catch (e) {
-      console.error("Failed to parse AI JSON response:", rawResponse);
-      return NextResponse.json({ error: "AI failed to return a valid JSON format." }, { status: 500 });
-    }
-    
-    return NextResponse.json(evaluation);
-
+export async function GET() {
+  try {
+    const database = await getServerDatabase();
+    const sessions = await database.sessions.list({ moduleType: 'standup', limit: ATTEMPT_LIMIT });
+    const attempts = await Promise.all(sessions.map((session) => attemptResponse(database, session)));
+    return NextResponse.json({ attempts });
   } catch (error) {
-    console.error('Error in /api/standup:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return aiRouteError(error);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  let database: Awaited<ReturnType<typeof getServerDatabase>> | null = null;
+  let sessionId: string | null = null;
+
+  try {
+    database = await getServerDatabase();
+    await enforceRateLimit(database.client, 'standup:evaluate', 10);
+    const input = await readJsonWithLimit(request, standupRequestSchema, 24_000);
+    const answer: StandupAnswer = {
+      yesterday: input.yesterday,
+      today: input.today,
+      blockers: input.blockers,
+    };
+    const session = await database.sessions.create({
+      moduleType: 'standup',
+      clientRequestId: input.clientRequestId,
+      inputMode: input.inputMode,
+      userAnswer: JSON.stringify(answer),
+      transcript: input.inputMode === 'voice' ? input.transcript : null,
+      durationSeconds: input.durationSeconds ?? null,
+      status: 'processing',
+    });
+    sessionId = session.id;
+
+    const existingEvaluation = await database.evaluations.readBySession(session.id);
+    const storedEvaluation = toStandupEvaluation(existingEvaluation);
+    if (storedEvaluation) {
+      if (session.status !== 'completed') {
+        await database.sessions.update(session.id, {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          durationSeconds: input.durationSeconds ?? undefined,
+        });
+      }
+      return NextResponse.json({ sessionId: session.id, evaluation: storedEvaluation });
+    }
+    await database.sessions.update(session.id, {
+      status: 'processing',
+      userAnswer: JSON.stringify(answer),
+      transcript: input.inputMode === 'voice' ? input.transcript : null,
+      durationSeconds: input.durationSeconds ?? null,
+      completedAt: null,
+    });
+    const profile = await database.profiles.read();
+
+    const result = await evaluateStructured({
+      prompt: buildStandupPrompt(answer, {
+        jobTitle: profile?.jobTitle ?? null,
+        englishLevel: profile?.englishLevel ?? null,
+      }),
+      schema: standupResponseSchema,
+      mode: 'fast',
+      promptVersion: STANDUP_PROMPT_VERSION,
+      systemInstruction: EVALUATOR_SYSTEM_INSTRUCTION,
+      sessionId: session.id,
+    });
+
+    await database.evaluations.create({
+      sessionId: session.id,
+      overallScore: result.data.overallScore,
+      categoryScores: result.data.categoryScores,
+      summary: result.data.summary,
+      strengths: result.data.strengths,
+      improvements: result.data.improvements,
+      improvedAnswer: result.data.improvedAnswer,
+      nextExercise: result.data.nextExercise ?? null,
+      promptVersion: STANDUP_PROMPT_VERSION,
+      schemaVersion: STANDUP_SCHEMA_VERSION,
+      modelName: result.model,
+    });
+    await database.sessions.update(session.id, {
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      durationSeconds: input.durationSeconds ?? undefined,
+    });
+
+    return NextResponse.json({ sessionId: session.id, evaluation: result.data }, { status: 201 });
+  } catch (error) {
+    if (database && sessionId) {
+      try {
+        await database.sessions.update(sessionId, { status: 'failed' });
+      } catch (updateError) {
+        console.error('Failed to mark stand-up session as failed:', updateError);
+      }
+    }
+    return aiRouteError(error);
   }
 }

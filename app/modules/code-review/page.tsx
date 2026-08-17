@@ -1,64 +1,34 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
-  Bell,
-  BookOpen,
   CheckCircle2,
-  ChevronRight,
   Code2,
-  Grid2X2,
-  Info,
-  LogOut,
+  History,
   MessageSquare,
-  Mic,
-  PenTool,
-  Search,
+  RefreshCcw,
   Send,
-  Settings,
   Sparkles,
   Star,
-  Users,
-  Zap,
-} from 'lucide-react';
+  Zap } from 'lucide-react';
+import type {
+  AuthorCodeReviewEvaluation,
+  ReviewerCodeReviewEvaluation,
+} from '@/lib/ai/schemas';
+import type { CodeReviewAnswer } from '@/lib/validation/codeReview';
 
-interface Suggestion {
-  title: string;
-  description: string;
-  type: 'tip' | 'warning' | 'refactor';
-  icon: string;
-}
-
-interface ReviewerFeedback {
-  constructiveness: number;
-  specificity: number;
-  tone: number;
-  feedback: string;
-  suggestions: Suggestion[];
-}
-
-interface AuthorFeedback {
-  correctness: number;
-  readability: number;
-  bestPractices: number;
-  feedback: string;
-  suggestions: Suggestion[];
-}
-
-type AiFeedbackType = ReviewerFeedback | AuthorFeedback;
+type AiFeedbackType = ReviewerCodeReviewEvaluation | AuthorCodeReviewEvaluation;
 type Role = 'reviewer' | 'author';
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: Grid2X2 },
-  { href: '/modules/interview', label: 'Interview', icon: BookOpen },
-  { href: '/modules/standup', label: 'Stand-up', icon: MessageSquare },
-  { href: '/modules/code-review', label: 'Code Review', icon: Code2 },
-  { href: '/modules/writing', label: 'Writing', icon: PenTool },
-  { href: '/modules/pair-programming', label: 'Pair Programming', icon: Users },
-  { href: '/modules/progress', label: 'Progress', icon: BarChart3 },
-];
+interface CodeReviewAttempt {
+  id: string;
+  createdAt: string;
+  status: 'draft' | 'processing' | 'completed' | 'failed';
+  answer: CodeReviewAnswer | null;
+  evaluation: AiFeedbackType | null;
+}
+
 
 const SAMPLE_CODE_REVIEWER = `export const calculateTotal = (items) => {
   let total = 0;
@@ -99,16 +69,22 @@ const guidelines = [
   'Suggest exact code snippets where possible',
 ];
 
-function isReviewerFeedback(feedback: AiFeedbackType): feedback is ReviewerFeedback {
+function isReviewerFeedback(feedback: AiFeedbackType): feedback is ReviewerCodeReviewEvaluation {
   return 'constructiveness' in feedback;
 }
 
 function averageScore(feedback: AiFeedbackType | null) {
-  if (!feedback) return 84;
+  if (!feedback) return null;
   if (isReviewerFeedback(feedback)) {
     return Math.round((feedback.constructiveness + feedback.specificity + feedback.tone) / 3);
   }
   return Math.round((feedback.correctness + feedback.readability + feedback.bestPractices) / 3);
+}
+
+async function fetchCodeReviewAttempts() {
+  const response = await fetch('/api/code-review', { cache: 'no-store' });
+  if (!response.ok) throw new Error('Code review history could not be loaded.');
+  return (await response.json() as { attempts: CodeReviewAttempt[] }).attempts;
 }
 
 function Stars({ value }: { value: number }) {
@@ -119,7 +95,7 @@ function Stars({ value }: { value: number }) {
       {Array.from({ length: 5 }).map((_, index) => (
         <Star
           key={index}
-          className={`size-4 ${index < filled ? 'fill-violet-400 text-violet-400' : 'fill-zinc-500 text-zinc-500'}`}
+          className={`size-4 ${index < filled ? 'fill-foreground text-foreground' : 'fill-muted-foreground text-muted-foreground'}`}
         />
       ))}
     </div>
@@ -132,54 +108,65 @@ export default function CodeReviewModule() {
   const [authorCode, setAuthorCode] = useState(SAMPLE_CODE_AUTHOR_DEFAULT);
   const [feedback, setFeedback] = useState<AiFeedbackType | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [attempts, setAttempts] = useState<CodeReviewAttempt[]>([]);
+  const [attemptsLoading, setAttemptsLoading] = useState(true);
+  const clientRequestIdRef = useRef<string | null>(null);
+  const startedAtRef = useRef<number | null>(null);
+  const formRef = useRef<HTMLElement>(null);
   const score = averageScore(feedback);
+
+  useEffect(() => {
+    let active = true;
+    fetchCodeReviewAttempts()
+      .then((items) => {
+        if (active) setAttempts(items);
+      })
+      .catch((attemptError) => console.warn(attemptError))
+      .finally(() => {
+        if (active) setAttemptsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const intelligence = useMemo(() => {
     if (!feedback) {
-      return [
-        {
-          label: 'Constructiveness',
-          score: 82,
-          note: 'Feedback provides clear alternative solutions and explains the reasoning.',
-        },
-        {
-          label: 'Tone & Empathy',
-          score: 78,
-          note: "Uses 'I' statements but occasionally sounds slightly prescriptive.",
-        },
-        {
-          label: 'Specificity',
-          score: 92,
-          note: 'Directly references line numbers and specific logic patterns.',
-        },
-      ];
+      return [];
     }
 
     if (isReviewerFeedback(feedback)) {
       return [
-        { label: 'Constructiveness', score: feedback.constructiveness, note: feedback.feedback },
-        { label: 'Tone & Empathy', score: feedback.tone, note: feedback.feedback },
-        { label: 'Specificity', score: feedback.specificity, note: feedback.feedback },
+        { label: 'Constructiveness', score: feedback.constructiveness, note: feedback.summary },
+        { label: 'Tone & Empathy', score: feedback.tone, note: feedback.summary },
+        { label: 'Specificity', score: feedback.specificity, note: feedback.summary },
       ];
     }
 
     return [
-      { label: 'Correctness', score: feedback.correctness, note: feedback.feedback },
-      { label: 'Readability', score: feedback.readability, note: feedback.feedback },
-      { label: 'Best Practices', score: feedback.bestPractices, note: feedback.feedback },
+      { label: 'Correctness', score: feedback.correctness, note: feedback.summary },
+      { label: 'Readability', score: feedback.readability, note: feedback.summary },
+      { label: 'Best Practices', score: feedback.bestPractices, note: feedback.summary },
     ];
   }, [feedback]);
 
   const handleSubmit = async () => {
     const content = role === 'reviewer' ? inputContent : authorCode;
-    if (!content.trim()) return;
+    if (!content.trim() || (role === 'author' && authorCode === SAMPLE_CODE_AUTHOR_DEFAULT)) return;
 
     setLoading(true);
     setFeedback(null);
+    setError(null);
 
+    const clientRequestId = clientRequestIdRef.current ?? crypto.randomUUID();
+    clientRequestIdRef.current = clientRequestId;
+    const durationSeconds = startedAtRef.current === null
+      ? 0
+      : Math.max(1, Math.floor((Date.now() - startedAtRef.current) / 1000));
     const payload = role === 'reviewer'
-      ? { role: 'reviewer', userReview: inputContent, codeToReview: SAMPLE_CODE_REVIEWER }
-      : { role: 'author', codeToReview: authorCode };
+      ? { role: 'reviewer', userReview: inputContent, codeToReview: SAMPLE_CODE_REVIEWER, clientRequestId, durationSeconds }
+      : { role: 'author', codeToReview: authorCode, clientRequestId, durationSeconds };
 
     try {
       const response = await fetch('/api/code-review', {
@@ -188,126 +175,64 @@ export default function CodeReviewModule() {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) throw new Error('API request failed');
-      const data = await response.json();
-      setFeedback(data);
-
-      await fetch('/api/log-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: 'anonymous',
-          moduleType: 'code_review',
-          taskName: role === 'reviewer' ? 'Pull Request #128' : 'Code Authoring',
-          scores: data,
-          userInput: content,
-          aiFeedback: data.feedback,
-        }),
-      }).catch(console.warn);
-    } catch (error) {
-      console.error(error);
+      const responsePayload = await response.json();
+      if (!response.ok) throw new Error(responsePayload.error || 'Code review evaluation failed.');
+      setFeedback((responsePayload as { evaluation: AiFeedbackType }).evaluation);
+      clientRequestIdRef.current = null;
+      fetchCodeReviewAttempts().then(setAttempts).catch((attemptError) => console.warn(attemptError));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Code review evaluation failed.');
     } finally {
       setLoading(false);
     }
   };
 
+  const changeRole = (nextRole: Role) => {
+    setRole(nextRole);
+    setInputContent('');
+    setAuthorCode(SAMPLE_CODE_AUTHOR_DEFAULT);
+    setFeedback(null);
+    setError(null);
+    clientRequestIdRef.current = null;
+    startedAtRef.current = null;
+  };
+
+  const loadAnswer = (answer: CodeReviewAnswer) => {
+    setRole(answer.role);
+    if (answer.role === 'reviewer') {
+      setInputContent(answer.userReview);
+    } else {
+      setAuthorCode(answer.codeToReview);
+    }
+    setFeedback(null);
+    setError(null);
+    clientRequestIdRef.current = null;
+    startedAtRef.current = Date.now();
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
+
   return (
-    <main className="min-h-screen bg-black text-zinc-100 font-mono">
-      <div className="flex min-h-screen border border-zinc-800 bg-black">
-        <aside className="hidden lg:flex w-72 shrink-0 flex-col border-r border-zinc-800 bg-[#18191b]">
-          <div className="flex h-24 items-center px-10">
-            <Link href="/dashboard" className="flex items-center gap-3">
-              <span className="flex size-9 items-center justify-center rounded-lg bg-violet-400 text-black">
-                <Sparkles className="size-5" />
-              </span>
-              <span className="text-xl font-black tracking-tight text-violet-300">DevSpeak AI</span>
-            </Link>
-          </div>
+    <div className="space-y-6">
 
-          <nav className="flex flex-1 flex-col gap-2 px-5 py-2">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const active = item.href === '/modules/code-review';
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold transition-colors ${
-                    active
-                      ? 'bg-violet-500/15 text-violet-300'
-                      : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
-                  }`}
-                >
-                  <Icon className="size-4" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="border-t border-zinc-800 px-5 py-6">
-            <Link href="/settings" className="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100">
-              <Settings className="size-4" />
-              Settings
-            </Link>
-            <Link href="/" className="mt-2 flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold text-red-400 hover:bg-red-500/10">
-              <LogOut className="size-4" />
-              Logout
-            </Link>
-          </div>
-        </aside>
-
-        <section className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-16 items-center justify-between border-b border-zinc-800 px-5 lg:px-10">
-            <div className="flex h-10 w-full max-w-md items-center gap-3 rounded-md bg-zinc-900 px-4 text-sm text-zinc-400 ring-1 ring-zinc-800">
-              <Search className="size-4" />
-              <span className="truncate">Search simulations, docs...</span>
-              <kbd className="ml-auto hidden rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300 sm:inline">⌘ K</kbd>
-            </div>
-
-            <div className="flex items-center gap-5">
-              <button type="button" className="relative rounded-md p-2 text-zinc-300 hover:bg-zinc-900">
-                <Bell className="size-5" />
-                <span className="absolute right-2 top-2 size-1.5 rounded-full bg-violet-400" />
-              </button>
-              <div className="hidden h-7 w-px bg-zinc-800 sm:block" />
-              <div className="hidden text-right sm:block">
-                <p className="text-sm font-black leading-none text-white">Alex Dev</p>
-                <p className="mt-1 text-[11px] text-zinc-400">Lvl 24 Senior Eng</p>
-              </div>
-              <div className="relative size-10 rounded-full bg-gradient-to-br from-violet-300 to-emerald-300 p-0.5">
-                <div className="flex size-full items-center justify-center rounded-full bg-zinc-900 text-sm font-black">AD</div>
-                <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-black bg-emerald-400" />
-              </div>
-            </div>
-          </header>
-
-          <div className="flex-1 px-5 py-8 lg:px-10">
+          <div className="space-y-6">
             <div className="mb-9 flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div>
                 <div className="flex flex-wrap items-center gap-3">
-                  <h1 className="text-3xl font-black tracking-tight text-white">Code Review Practice</h1>
-                  <span className="rounded-md border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-xs font-black text-emerald-300">
-                    Scenario #42: Refactoring
-                  </span>
+                  <h1 className="text-3xl font-black tracking-tight text-foreground">Code Review Practice</h1>
                 </div>
-                <p className="mt-3 max-w-4xl text-sm font-semibold leading-7 text-zinc-400">
+                <p className="mt-3 max-w-4xl text-sm font-semibold leading-7 text-muted-foreground">
                   Practice giving constructive feedback on complex logic changes. Focus on specificity and tone.
                 </p>
               </div>
 
-              <div className="grid h-11 w-full max-w-sm grid-cols-2 rounded-md border border-zinc-700 bg-zinc-950 p-1">
-                {(['reviewer', 'author'] as Role[]).map((item) => (
+              <div className="grid h-11 w-full max-w-sm grid-cols-2 rounded-md border border-border bg-background p-1">
+                {(['reviewer', 'author'] as const).map((item) => (
                   <button
                     key={item}
                     type="button"
-                    onClick={() => {
-                      setRole(item);
-                      setFeedback(null);
-                    }}
+                    onClick={() => changeRole(item)}
                     className={`rounded text-sm font-black capitalize transition ${
-                      role === item ? 'bg-violet-400 text-black' : 'text-zinc-400 hover:text-white'
+                      role === item ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
                     {item}
@@ -318,29 +243,28 @@ export default function CodeReviewModule() {
 
             <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_360px]">
               <div className="space-y-7">
-                <section className="overflow-hidden rounded-lg border border-zinc-700 bg-[#18191b]">
-                  <div className="flex items-center justify-between border-b border-zinc-700 px-6 py-5">
+                <section ref={formRef} className="scroll-mt-6 overflow-hidden rounded-lg border border-border bg-card">
+                  <div className="flex items-center justify-between border-b border-border px-6 py-5">
                     <div className="flex items-center gap-4">
-                      <span className="flex size-10 items-center justify-center rounded-md bg-violet-500/15 text-violet-300">
+                      <span className="flex size-10 items-center justify-center rounded-md bg-muted text-foreground">
                         <Code2 className="size-5" />
                       </span>
                       <div>
-                        <h2 className="text-base font-black text-white">Pull Request #128</h2>
-                        <p className="mt-1 text-xs font-semibold text-zinc-400">Refactor cart calculation logic for performance</p>
+                        <h2 className="text-base font-black text-foreground">Starter Scenario: Cart Calculation</h2>
+                        <p className="mt-1 text-xs font-semibold text-muted-foreground">
+                          {role === 'reviewer' ? 'Practice a constructive review comment.' : 'Improve the starter implementation.'}
+                        </p>
                       </div>
                     </div>
-                    <div className="hidden -space-x-2 sm:flex">
-                      <span className="flex size-7 items-center justify-center rounded-full border border-black bg-zinc-700 text-[10px] font-black">JD</span>
-                      <span className="flex size-7 items-center justify-center rounded-full border border-black bg-violet-400 text-[10px] font-black text-black">AD</span>
-                    </div>
+                    <span className="rounded-full border border-border px-3 py-1 text-xs font-black capitalize text-muted-foreground">{role} context</span>
                   </div>
 
-                  <div className="flex items-center justify-between border-b border-zinc-700 bg-zinc-900 px-5 py-3">
-                    <div className="flex items-center gap-3 text-xs font-black text-zinc-400">
-                      <Code2 className="size-4 text-violet-300" />
+                  <div className="flex items-center justify-between border-b border-border bg-muted px-5 py-3">
+                    <div className="flex items-center gap-3 text-xs font-black text-muted-foreground">
+                      <Code2 className="size-4 text-foreground" />
                       src/utils/cart.ts
                     </div>
-                    <span className="rounded-full border border-zinc-700 px-3 py-1 text-xs font-black text-zinc-300">Typescript</span>
+                    <span className="rounded-full border border-border px-3 py-1 text-xs font-black text-muted-foreground">Typescript</span>
                   </div>
 
                   {role === 'reviewer' ? (
@@ -348,16 +272,16 @@ export default function CodeReviewModule() {
                       {diffRows.map((row, index) => (
                         <div
                           key={`${row.line}-${index}`}
-                          className={`grid grid-cols-[44px_28px_minmax(620px,1fr)] px-4 font-mono leading-7 ${
+                          className={`grid grid-cols-[44px_28px_minmax(620px,1fr)] px-4  leading-7 ${
                             row.type === 'remove'
                               ? 'bg-red-500/10 text-red-300'
                               : row.type === 'add'
-                                ? 'bg-emerald-500/5 text-zinc-100'
-                                : 'text-zinc-200'
+                                ? 'bg-emerald-500/5 text-foreground'
+                                : 'text-foreground'
                           }`}
                         >
                           <span className="text-right text-zinc-600">{row.line}</span>
-                          <span className={row.type === 'remove' ? 'text-red-400' : row.type === 'add' ? 'text-white' : 'text-zinc-500'}>
+                          <span className={row.type === 'remove' ? 'text-red-400' : row.type === 'add' ? 'text-foreground' : 'text-muted-foreground'}>
                             {row.mark}
                           </span>
                           <code>{row.code}</code>
@@ -367,28 +291,40 @@ export default function CodeReviewModule() {
                   ) : (
                     <textarea
                       value={authorCode}
-                      onChange={(event) => setAuthorCode(event.target.value)}
+                      onChange={(event) => {
+                        setAuthorCode(event.target.value);
+                        setFeedback(null);
+                        setError(null);
+                        clientRequestIdRef.current = null;
+                        if (startedAtRef.current === null) startedAtRef.current = Date.now();
+                      }}
                       spellCheck={false}
-                      className="min-h-[340px] w-full resize-none bg-[#0d1117] p-5 font-mono text-sm leading-7 text-zinc-100 outline-none"
+                      className="min-h-[340px] w-full resize-none bg-[#0d1117] p-5 text-sm leading-7 text-foreground outline-none"
                     />
                   )}
                 </section>
 
                 <section>
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <h2 className="flex items-center gap-2 text-base font-black text-white">
-                      <MessageSquare className="size-5 text-violet-300" />
+                    <h2 className="flex items-center gap-2 text-base font-black text-foreground">
+                      <MessageSquare className="size-5 text-foreground" />
                       Your Feedback
                     </h2>
-                    <span className="rounded-full bg-violet-500/15 px-3 py-1 text-[10px] font-black text-violet-300">Voice Mode Enabled</span>
+                    <span className="rounded-full bg-muted px-3 py-1 text-[10px] font-black text-foreground">Written practice</span>
                   </div>
 
-                  <div className="rounded-lg border border-zinc-700 bg-black p-5">
+                  <div className="rounded-lg border border-border bg-background p-5">
                     <textarea
                       value={inputContent}
-                      onChange={(event) => setInputContent(event.target.value)}
+                      onChange={(event) => {
+                        setInputContent(event.target.value);
+                        setFeedback(null);
+                        setError(null);
+                        clientRequestIdRef.current = null;
+                        if (startedAtRef.current === null) startedAtRef.current = Date.now();
+                      }}
                       disabled={role === 'author'}
-                      className="min-h-32 w-full resize-none bg-transparent text-sm font-semibold leading-7 text-zinc-100 outline-none placeholder:text-zinc-500 disabled:opacity-60"
+                      className="min-h-32 w-full resize-none bg-transparent text-sm font-semibold leading-7 text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
                       placeholder={
                         role === 'reviewer'
                           ? "e.g., I suggest using a more descriptive variable name here to improve clarity..."
@@ -396,15 +332,11 @@ export default function CodeReviewModule() {
                       }
                     />
                     <div className="mt-4 flex justify-end gap-3">
-                      <button type="button" className="inline-flex h-10 items-center gap-2 rounded-full bg-violet-400 px-5 text-sm font-black text-black hover:bg-violet-300">
-                        <Mic className="size-4" />
-                        Speak
-                      </button>
                       <button
                         type="button"
                         onClick={handleSubmit}
-                        disabled={loading || (role === 'reviewer' ? !inputContent.trim() : !authorCode.trim())}
-                        className="inline-flex h-10 items-center gap-2 rounded-full bg-zinc-800 px-5 text-sm font-black text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        disabled={loading || (role === 'reviewer' ? !inputContent.trim() : !authorCode.trim() || authorCode === SAMPLE_CODE_AUTHOR_DEFAULT)}
+                        className="inline-flex h-10 items-center gap-2 rounded-full bg-muted px-5 text-sm font-black text-foreground hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {loading ? <span className="size-4 rounded-full border-2 border-white/30 border-t-white animate-spin" /> : <Send className="size-4" />}
                         {loading ? 'Analyzing' : 'Submit'}
@@ -412,103 +344,185 @@ export default function CodeReviewModule() {
                     </div>
                   </div>
                 </section>
+                {error && <p className="rounded-md border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</p>}
 
-                <div className="rounded-lg border border-violet-500/30 bg-violet-950/20 p-4 text-sm font-semibold leading-7 text-zinc-300">
-                  <span className="mr-2 inline-flex items-center gap-2 font-black text-violet-300">
+                {!feedback && (
+                <div className="rounded-lg border border-border bg-muted p-4 text-sm font-semibold leading-7 text-muted-foreground">
+                  <span className="mr-2 inline-flex items-center gap-2 font-black text-foreground">
                     <Zap className="inline size-4" />
                     AI Tip:
                   </span>
-                  {feedback?.feedback || 'Try to be more specific. Mention line 14 and suggest the exact alternative to reduce cognitive load.'}
+                  Try to be specific, explain why a change helps, and distinguish blockers from optional suggestions.
                 </div>
+                )}
 
-                {feedback?.suggestions?.length ? (
-                  <section className="grid gap-3 md:grid-cols-3">
-                    {feedback.suggestions.map((suggestion, index) => (
-                      <article key={`${suggestion.title}-${index}`} className="rounded-lg border border-zinc-800 bg-zinc-950 p-4">
-                        <p className="text-sm font-black text-white">{suggestion.title}</p>
-                        <p className="mt-2 text-xs font-semibold leading-6 text-zinc-400">{suggestion.description}</p>
+                {feedback && (
+                  <article className="rounded-lg border border-border bg-muted p-5">
+                    <h2 className="text-sm font-black uppercase text-foreground">Summary</h2>
+                    <p className="mt-3 text-sm leading-7 text-foreground">{feedback.summary}</p>
+                  </article>
+                )}
+
+                {feedback && (
+                  <>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <article className="rounded-lg border border-teal-500/25 bg-teal-500/5 p-5">
+                        <h3 className="font-black text-teal-300">Strengths</h3>
+                        <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                          {feedback.strengths.map((item) => <li key={item}>• {item}</li>)}
+                        </ul>
                       </article>
-                    ))}
-                  </section>
-                ) : null}
+                      <article className="rounded-lg border border-orange-500/25 bg-orange-500/5 p-5">
+                        <h3 className="font-black text-orange-300">Improvements</h3>
+                        <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                          {feedback.improvements.map((item) => <li key={item}>• {item}</li>)}
+                        </ul>
+                      </article>
+                    </div>
+                    <article className="rounded-lg border border-border bg-card p-6">
+                      <h3 className="font-black text-foreground">
+                        {role === 'reviewer' ? 'Improved Review' : 'Improved Code'}
+                      </h3>
+                      <pre className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">{feedback.improvedAnswer}</pre>
+                    </article>
+                    <section className="grid gap-3 md:grid-cols-3">
+                      {feedback.suggestions.map((suggestion, index) => (
+                        <article key={`${suggestion.title}-${index}`} className="rounded-lg border border-border bg-background p-4">
+                          <p className="text-sm font-black text-foreground">{suggestion.title}</p>
+                          <p className="mt-2 text-xs font-semibold leading-6 text-muted-foreground">{suggestion.description}</p>
+                        </article>
+                      ))}
+                    </section>
+                    <div className="flex flex-col justify-center gap-3 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={() => loadAnswer(role === 'reviewer'
+                          ? { role: 'reviewer', userReview: feedback.improvedAnswer, codeToReview: SAMPLE_CODE_REVIEWER }
+                          : { role: 'author', codeToReview: feedback.improvedAnswer })}
+                        className="inline-flex items-center justify-center gap-2 rounded-md border border-border px-5 py-3 text-sm font-black text-foreground"
+                      >
+                        <Sparkles className="size-4" /> Use improved answer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => loadAnswer(role === 'reviewer'
+                          ? { role: 'reviewer', userReview: inputContent, codeToReview: SAMPLE_CODE_REVIEWER }
+                          : { role: 'author', codeToReview: authorCode })}
+                        className="inline-flex items-center justify-center gap-2 rounded-md border border-border px-5 py-3 text-sm font-black text-foreground"
+                      >
+                        <RefreshCcw className="size-4" /> Edit and try again
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
 
               <aside className="space-y-7">
-                <section className="rounded-lg bg-[#18191b] p-6">
-                  <h2 className="mb-6 flex items-center gap-3 text-lg font-black text-white">
+                <section className="rounded-lg bg-card p-6">
+                  <h2 className="mb-6 flex items-center gap-3 text-lg font-black text-foreground">
                     <BarChart3 className="size-5 text-emerald-300" />
                     Practice Intelligence
                   </h2>
 
-                  <div className="space-y-6">
-                    {intelligence.map((item, index) => (
-                      <div key={item.label} className={index === intelligence.length - 1 ? '' : 'border-b border-zinc-700 pb-6'}>
-                        <div className="mb-2 flex items-center justify-between gap-4">
-                          <h3 className="font-black text-white">{item.label}</h3>
-                          <Stars value={item.score} />
-                        </div>
-                        <p className="line-clamp-2 text-xs font-semibold italic leading-5 text-zinc-400">{item.note}</p>
+                  {feedback ? (
+                    <>
+                      <div className="space-y-6">
+                        {intelligence.map((item, index) => (
+                          <div key={item.label} className={index === intelligence.length - 1 ? '' : 'border-b border-border pb-6'}>
+                            <div className="mb-2 flex items-center justify-between gap-4">
+                              <h3 className="font-black text-foreground">{item.label}</h3>
+                              <Stars value={item.score} />
+                            </div>
+                            <p className="line-clamp-2 text-xs font-semibold italic leading-5 text-muted-foreground">{item.note}</p>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
 
-                  <div className="mt-7 rounded-md border border-zinc-700 bg-zinc-950 p-4">
-                    <div className="mb-3 flex items-center justify-between text-xs font-black uppercase tracking-widest text-zinc-300">
-                      <span>Overall Fluency</span>
-                      <span className="text-violet-300">{score}%</span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
-                      <div className="h-full rounded-full bg-violet-400" style={{ width: `${score}%` }} />
-                    </div>
-                  </div>
+                      <div className="mt-7 rounded-md border border-border bg-background p-4">
+                        <div className="mb-3 flex items-center justify-between text-xs font-black uppercase tracking-widest text-muted-foreground">
+                          <span>Overall Score</span>
+                          <span className="text-foreground">{score ?? 0}%</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-muted">
+                          <div className="h-full rounded-full bg-primary" style={{ width: `${score ?? 0}%` }} />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm leading-6 text-muted-foreground">Scores will appear after you submit this practice.</p>
+                  )}
                 </section>
 
-                <section className="rounded-lg bg-violet-950/10 p-6">
-                  <h2 className="mb-5 text-sm font-black uppercase tracking-[0.25em] text-violet-300">Reviewer Guidelines</h2>
+                <section className="rounded-lg bg-muted p-6">
+                  <h2 className="mb-5 text-sm font-black uppercase tracking-[0.25em] text-foreground">Reviewer Guidelines</h2>
                   <div className="space-y-4">
                     {guidelines.map((guideline) => (
-                      <p key={guideline} className="flex gap-3 text-sm font-semibold leading-6 text-zinc-300">
+                      <p key={guideline} className="flex gap-3 text-sm font-semibold leading-6 text-muted-foreground">
                         <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-cyan-300" />
                         {guideline}
                       </p>
                     ))}
                   </div>
-                  <button type="button" className="mt-7 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md border border-zinc-700 text-xs font-black text-white hover:bg-zinc-900">
-                    <Info className="size-4" />
-                    View Full Review Guide
-                  </button>
                 </section>
 
-                <section>
-                  <h2 className="mb-4 text-xs font-black uppercase tracking-[0.2em] text-zinc-400">Recent Practice Session</h2>
-                  <article className="rounded-lg border border-zinc-700 bg-[#18191b] p-4">
-                    <div className="mb-4 flex items-center justify-between text-xs text-zinc-400">
-                      <span>2 hours ago</span>
-                      <ChevronRight className="size-4" />
-                    </div>
-                    <p className="text-sm font-semibold italic leading-6 text-zinc-300">
-                      &quot;I think we could simplify this loop using an array reduction. It might help with...&quot;
-                    </p>
-                    <div className="mt-5 flex gap-4 text-[10px] font-black text-white">
-                      <span>Positive Tone</span>
-                      <span>Technical</span>
-                    </div>
-                  </article>
-                </section>
               </aside>
             </div>
+
+            <section className="mt-8 rounded-lg border border-border bg-card p-6">
+              <h2 className="flex items-center gap-2 text-lg font-black text-foreground">
+                <History className="size-5 text-foreground" /> Previous Code Reviews
+              </h2>
+              {attemptsLoading ? (
+                <p className="mt-4 text-sm text-muted-foreground">Loading code review attempts...</p>
+              ) : attempts.length === 0 ? (
+                <p className="mt-4 text-sm text-muted-foreground">No attempts yet. Complete the starter scenario to begin tracking progress.</p>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {attempts.map((attempt) => (
+                    <details key={attempt.id} className="rounded-md border border-border bg-background/30 p-4">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold">
+                        <span className="capitalize">{attempt.answer?.role ?? 'Code review'} · {new Date(attempt.createdAt).toLocaleString()}</span>
+                        <span className={attempt.status === 'completed' ? 'text-teal-300' : attempt.status === 'failed' ? 'text-red-300' : 'text-orange-300'}>
+                          {attempt.evaluation ? `${averageScore(attempt.evaluation)}/100` : attempt.status}
+                        </span>
+                      </summary>
+                      <div className="mt-4 space-y-3 border-t border-border pt-4 text-sm text-muted-foreground">
+                        {attempt.answer && (
+                          <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-muted-foreground">
+                            {attempt.answer.role === 'reviewer' ? attempt.answer.userReview : attempt.answer.codeToReview}
+                          </pre>
+                        )}
+                        {attempt.evaluation && <p>{attempt.evaluation.summary}</p>}
+                        {attempt.status === 'failed' && !attempt.evaluation && (
+                          <p className="text-red-300">This evaluation failed. Load it and submit as a new attempt.</p>
+                        )}
+                        {attempt.answer && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (attempt.answer) loadAnswer(attempt.answer);
+                            }}
+                            className="rounded-md border border-border px-4 py-2 text-xs font-black text-foreground hover:border-foreground"
+                          >
+                            Load into practice
+                          </button>
+                        )}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
 
-          <footer className="flex flex-col gap-4 border-t border-zinc-800 px-5 py-5 text-xs font-semibold text-zinc-400 lg:flex-row lg:items-center lg:justify-between lg:px-10">
+          <footer className="flex flex-col gap-4 border-t border-border px-5 py-5 text-xs font-semibold text-muted-foreground lg:flex-row lg:items-center lg:justify-between lg:px-10">
             <p>© 2026 DevSpeak AI • System Status: Operational</p>
             <div className="flex flex-wrap gap-5">
-              <Link href="#" className="hover:text-white">Documentation</Link>
-              <Link href="#" className="hover:text-white">API Reference</Link>
-              <Link href="#" className="hover:text-white">Privacy Policy</Link>
+              <span>Documentation</span>
+              <span>API Reference</span>
+              <span>Privacy Policy</span>
             </div>
           </footer>
-        </section>
-      </div>
-    </main>
+    </div>
   );
 }

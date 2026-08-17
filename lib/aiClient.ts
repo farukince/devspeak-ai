@@ -1,8 +1,5 @@
-export type AiResponseMode = 'fast' | 'deep';
+import 'server-only';
 
-export async function getAiResponse(
-  _prompt: string,
-  _mode: AiResponseMode = 'deep'
-): Promise<string> {
-  throw new Error('AI provider is not configured yet.');
-}
+export { evaluateCommunication, evaluateStructured } from '@/lib/ai/evaluate';
+export type { AiResponseMode } from '@/lib/ai/config';
+export type { EvaluationResult } from '@/lib/ai/schemas';

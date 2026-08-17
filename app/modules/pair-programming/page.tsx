@@ -1,56 +1,31 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
 import {
-  BarChart3,
-  Bell,
-  BookOpen,
-  CheckCircle2,
-  ChevronRight,
   Code2,
-  Grid2X2,
-  Info,
-  LogOut,
+  History,
   MessageSquare,
-  Mic,
-  PenTool,
-  Play,
-  Search,
-  Settings,
-  SlidersHorizontal,
+  RefreshCcw,
+  Send,
   Sparkles,
   Terminal,
-  Users,
-} from 'lucide-react';
+  Users } from 'lucide-react';
+import type {
+  DriverPairProgrammingEvaluation,
+  NavigatorPairProgrammingEvaluation,
+} from '@/lib/ai/schemas';
+import type { PairProgrammingAnswer } from '@/lib/validation/pairProgramming';
 
-interface FeedbackItem {
-  title: string;
-  description: string;
-  type?: 'tip' | 'warning' | 'refactor';
-  code?: string;
-}
-
-interface DriverFeedback {
-  correctness: number;
-  efficiency: number;
-  readability: number;
-  feedback: string;
-  communication_tips?: FeedbackItem[];
-  refactoring_suggestions?: FeedbackItem[];
-  strategy_alerts?: FeedbackItem[];
-}
-
-interface NavigatorFeedback {
-  clarity: number;
-  effectiveness: number;
-  precision: number;
-  generatedCode: string;
-  communication_tips?: FeedbackItem[];
-}
-
-type AiFeedbackType = DriverFeedback | NavigatorFeedback;
+type AiFeedbackType = DriverPairProgrammingEvaluation | NavigatorPairProgrammingEvaluation;
 type Role = 'driver' | 'navigator';
+
+interface PairProgrammingAttempt {
+  id: string;
+  createdAt: string;
+  status: 'draft' | 'processing' | 'completed' | 'failed';
+  answer: PairProgrammingAnswer | null;
+  evaluation: AiFeedbackType | null;
+}
 
 interface ChatMessage {
   role: 'user' | 'ai';
@@ -78,26 +53,23 @@ export const validateToken = (req: Request, res: Response, next: NextFunction) =
   });
 };`;
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: Grid2X2 },
-  { href: '/modules/interview', label: 'Interview', icon: BookOpen },
-  { href: '/modules/standup', label: 'Stand-up', icon: MessageSquare },
-  { href: '/modules/code-review', label: 'Code Review', icon: Code2 },
-  { href: '/modules/writing', label: 'Writing', icon: PenTool },
-  { href: '/modules/pair-programming', label: 'Pair Programming', icon: Users },
-  { href: '/modules/progress', label: 'Progress', icon: BarChart3 },
-];
 
-function isDriverFeedback(feedback: AiFeedbackType): feedback is DriverFeedback {
+function isDriverFeedback(feedback: AiFeedbackType): feedback is DriverPairProgrammingEvaluation {
   return 'correctness' in feedback;
 }
 
 function sessionScore(feedback: AiFeedbackType | null) {
-  if (!feedback) return '92.4';
+  if (!feedback) return null;
   if (isDriverFeedback(feedback)) {
     return ((feedback.correctness + feedback.efficiency + feedback.readability) / 3).toFixed(1);
   }
   return ((feedback.clarity + feedback.effectiveness + feedback.precision) / 3).toFixed(1);
+}
+
+async function fetchPairProgrammingAttempts() {
+  const response = await fetch('/api/pair-programming', { cache: 'no-store' });
+  if (!response.ok) throw new Error('Pair programming history could not be loaded.');
+  return (await response.json() as { attempts: PairProgrammingAttempt[] }).attempts;
 }
 
 function timestamp() {
@@ -108,53 +80,56 @@ export default function PairProgrammingModule() {
   const [role, setRole] = useState<Role>('navigator');
   const [code, setCode] = useState(DEFAULT_CODE);
   const [chatInput, setChatInput] = useState('');
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
-    {
-      role: 'ai',
-      text: "I've set up the basic structure for the JWT middleware. How should we handle cases where the token is expired specifically?",
-      timestamp: '09:24',
-    },
-  ]);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [feedback, setFeedback] = useState<AiFeedbackType | null>(null);
+  const [lastAnswer, setLastAnswer] = useState<PairProgrammingAnswer | null>(null);
   const [loading, setLoading] = useState(false);
-  const [task, setTask] = useState('Implement JWT Error Handling');
-  const [mode, setMode] = useState<'text' | 'voice'>('text');
+  const [error, setError] = useState<string | null>(null);
+  const [attempts, setAttempts] = useState<PairProgrammingAttempt[]>([]);
+  const [attemptsLoading, setAttemptsLoading] = useState(true);
+  const task = 'Implement JWT Error Handling';
+  const clientRequestIdRef = useRef<string | null>(null);
+  const startedAtRef = useRef<number | null>(null);
+  const practiceRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    setFeedback(null);
-    setChatInput('');
-    setTask(role === 'driver' ? 'Refactor this legacy data processing script' : 'Implement JWT Error Handling');
-  }, [role]);
-
-  const tips = useMemo(() => {
-    if (!feedback) {
-      return [
-        'Mention TokenExpiredError explicitly.',
-        'Use 401 for expired credentials and 403 for malformed tokens.',
-        'Ask the driver to keep error messages specific but safe.',
-      ];
-    }
-
-    return [
-      ...(feedback.communication_tips || []).map((item) => item.description),
-      ...(isDriverFeedback(feedback) ? feedback.refactoring_suggestions || [] : []).map((item) => item.description),
-      ...(isDriverFeedback(feedback) ? feedback.strategy_alerts || [] : []).map((item) => item.description),
-    ].slice(0, 3);
-  }, [feedback]);
+    let active = true;
+    fetchPairProgrammingAttempts()
+      .then((items) => {
+        if (active) setAttempts(items);
+      })
+      .catch((attemptError) => console.warn(attemptError))
+      .finally(() => {
+        if (active) setAttemptsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleSubmit = async () => {
     if (role === 'navigator' && !chatInput.trim()) return;
-    if (role === 'driver' && !code.trim()) return;
+    if (role === 'driver' && (!code.trim() || code === DEFAULT_CODE)) return;
 
     setLoading(true);
+    setFeedback(null);
+    setError(null);
     const userMessage = role === 'navigator' ? chatInput : (chatInput || 'Please analyze the current implementation.');
+    setLastAnswer(role === 'driver'
+      ? { role: 'driver', task, code }
+      : { role: 'navigator', instruction: userMessage, code });
 
     setChatHistory((prev) => [...prev, { role: 'user', text: userMessage, timestamp: timestamp() }]);
     setChatInput('');
 
+    const clientRequestId = clientRequestIdRef.current ?? crypto.randomUUID();
+    clientRequestIdRef.current = clientRequestId;
+    const durationSeconds = startedAtRef.current === null
+      ? 0
+      : Math.max(1, Math.floor((Date.now() - startedAtRef.current) / 1000));
     const payload = role === 'driver'
-      ? { role: 'driver', task, code }
-      : { role: 'navigator', instruction: userMessage };
+      ? { role: 'driver', task, code, clientRequestId, durationSeconds }
+      : { role: 'navigator', instruction: userMessage, code, clientRequestId, durationSeconds };
 
     try {
       const response = await fetch('/api/pair-programming', {
@@ -163,217 +138,172 @@ export default function PairProgrammingModule() {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) throw new Error('API request failed');
-      const data: AiFeedbackType = await response.json();
+      const responsePayload = await response.json();
+      if (!response.ok) throw new Error(responsePayload.error || 'Pair programming evaluation failed.');
+      const data = (responsePayload as { evaluation: AiFeedbackType }).evaluation;
       setFeedback(data);
+      clientRequestIdRef.current = null;
 
-      const aiResponseText = isDriverFeedback(data)
-        ? data.feedback
-        : "I've updated the code based on your instruction. How does this look?";
+      const aiResponseText = data.summary;
 
       if (!isDriverFeedback(data) && data.generatedCode) {
         setCode(data.generatedCode);
       }
 
       setChatHistory((prev) => [...prev, { role: 'ai', text: aiResponseText, timestamp: timestamp() }]);
-
-      await fetch('/api/log-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: 'anonymous',
-          moduleType: 'pair_programming',
-          taskName: role === 'driver' ? task : 'Navigator Session',
-          scores: data,
-          userInput: role === 'driver' ? code : userMessage,
-          aiFeedback: aiResponseText,
-        }),
-      }).catch(console.warn);
-    } catch (error) {
-      console.error(error);
-      setChatHistory((prev) => [...prev, { role: 'ai', text: 'Sorry, something went wrong processing your request.', timestamp: timestamp() }]);
+      fetchPairProgrammingAttempts().then(setAttempts).catch((attemptError) => console.warn(attemptError));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Pair programming evaluation failed.');
     } finally {
       setLoading(false);
     }
   };
 
+  const changeRole = (nextRole: Role) => {
+    setRole(nextRole);
+    setCode(DEFAULT_CODE);
+    setChatInput('');
+    setChatHistory([]);
+    setFeedback(null);
+    setLastAnswer(null);
+    setError(null);
+    clientRequestIdRef.current = null;
+    startedAtRef.current = null;
+  };
+
+  const loadAnswer = (answer: PairProgrammingAnswer) => {
+    setRole(answer.role);
+    setCode(answer.code);
+    setChatInput(answer.role === 'navigator' ? answer.instruction : '');
+    setChatHistory([]);
+    setFeedback(null);
+    setLastAnswer(null);
+    setError(null);
+    clientRequestIdRef.current = null;
+    startedAtRef.current = Date.now();
+    setTimeout(() => practiceRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
+
   return (
-    <main className="min-h-screen bg-black text-zinc-100 font-mono">
-      <div className="flex min-h-screen border border-zinc-800 bg-black">
-        <aside className="hidden lg:flex w-72 shrink-0 flex-col border-r border-zinc-800 bg-[#18191b]">
-          <div className="flex h-24 items-center px-10">
-            <Link href="/dashboard" className="flex items-center gap-3">
-              <span className="flex size-9 items-center justify-center rounded-lg bg-violet-400 text-black">
-                <Sparkles className="size-5" />
-              </span>
-              <span className="text-xl font-black tracking-tight text-violet-300">DevSpeak AI</span>
-            </Link>
-          </div>
+    <div className="space-y-6">
 
-          <nav className="flex flex-1 flex-col gap-2 px-5 py-2">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const active = item.href === '/modules/pair-programming';
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold transition-colors ${
-                    active
-                      ? 'bg-violet-500/15 text-violet-300'
-                      : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
-                  }`}
-                >
-                  <Icon className="size-4" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="border-t border-zinc-800 px-5 py-6">
-            <Link href="/settings" className="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100">
-              <Settings className="size-4" />
-              Settings
-            </Link>
-            <Link href="/" className="mt-2 flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold text-red-400 hover:bg-red-500/10">
-              <LogOut className="size-4" />
-              Logout
-            </Link>
-          </div>
-        </aside>
-
-        <section className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-16 items-center justify-between border-b border-zinc-800 px-5 lg:px-10">
-            <div className="flex h-10 w-full max-w-md items-center gap-3 rounded-md bg-zinc-900 px-4 text-sm text-zinc-400 ring-1 ring-zinc-800">
-              <Search className="size-4" />
-              <span className="truncate">Search simulations, docs...</span>
-              <kbd className="ml-auto hidden rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300 sm:inline">⌘ K</kbd>
-            </div>
-
-            <div className="flex items-center gap-5">
-              <button type="button" className="relative rounded-md p-2 text-zinc-300 hover:bg-zinc-900">
-                <Bell className="size-5" />
-                <span className="absolute right-2 top-2 size-1.5 rounded-full bg-violet-400" />
-              </button>
-              <div className="hidden h-7 w-px bg-zinc-800 sm:block" />
-              <div className="hidden text-right sm:block">
-                <p className="text-sm font-black leading-none text-white">Alex Dev</p>
-                <p className="mt-1 text-[11px] text-zinc-400">Lvl 24 Senior Eng</p>
-              </div>
-              <div className="relative size-10 rounded-full bg-gradient-to-br from-violet-300 to-emerald-300 p-0.5">
-                <div className="flex size-full items-center justify-center rounded-full bg-zinc-900 text-sm font-black">AD</div>
-                <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-black bg-emerald-400" />
-              </div>
-            </div>
-          </header>
-
-          <div className="flex-1 px-5 py-8 lg:px-10">
+          <div className="space-y-6">
             <div className="mb-7 flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
               <div>
-                <h1 className="text-3xl font-black tracking-tight text-white">Pair Programming Simulation</h1>
-                <p className="mt-3 flex items-center gap-2 text-sm font-semibold text-zinc-400">
-                  <Users className="size-4 text-violet-300" />
-                  Collaborating with <span className="font-black text-white">Driver_AI_v2.4</span>
+                <h1 className="text-3xl font-black tracking-tight text-foreground">Pair Programming Simulation</h1>
+                <p className="mt-3 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+                  <Users className="size-4 text-foreground" />
+                  Starter task: <span className="font-black text-foreground">{task}</span>
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <div className="mr-2 text-right">
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-zinc-400">Session Score</p>
-                  <p className="text-2xl font-black text-violet-300">{sessionScore(feedback)}</p>
+                {feedback && (
+                  <div className="mr-2 text-right">
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground">Overall Score</p>
+                    <p className="text-2xl font-black text-foreground">{sessionScore(feedback)}</p>
+                  </div>
+                )}
+                <div className="grid h-11 grid-cols-2 rounded-md border border-border bg-background p-1">
+                  {(['navigator', 'driver'] as const).map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => changeRole(item)}
+                      className={`rounded px-4 text-xs font-black capitalize ${role === item ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                    >
+                      {item}
+                    </button>
+                  ))}
                 </div>
-                <button type="button" className="inline-flex h-11 items-center gap-2 rounded-md bg-zinc-800 px-5 text-sm font-black text-white hover:bg-zinc-700">
-                  <Info className="size-4" />
-                  Get Hint
-                </button>
-                <button type="button" onClick={handleSubmit} disabled={loading} className="inline-flex h-11 items-center gap-2 rounded-md bg-violet-400 px-6 text-sm font-black text-black hover:bg-violet-300 disabled:opacity-50">
-                  <Play className="size-4 fill-current" />
-                  {loading ? 'Analyzing...' : 'Analyze Performance'}
-                </button>
               </div>
             </div>
 
             <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_430px]">
-              <section>
-                <div className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-[0.25em] text-zinc-400">
-                  <Terminal className="size-4 text-violet-300" />
-                  Driver View <span className="text-zinc-500">(AI Managed)</span>
+              <section ref={practiceRef} className="scroll-mt-6">
+                <div className="mb-4 flex items-center gap-2 text-xs font-black uppercase tracking-[0.25em] text-muted-foreground">
+                  <Terminal className="size-4 text-foreground" />
+                  {role === 'navigator' ? 'Driver Code (read-only context)' : 'Driver Code (your implementation)'}
                 </div>
 
-                <div className="overflow-hidden rounded-lg border border-zinc-700 bg-[#0d1117]">
-                  <div className="flex items-center justify-between border-b border-zinc-700 bg-[#18191b] px-5 py-4">
+                <div className="overflow-hidden rounded-lg border border-border bg-[#0d1117]">
+                  <div className="flex items-center justify-between border-b border-border bg-card px-5 py-4">
                     <div className="flex items-center gap-3">
-                      <Code2 className="size-4 text-violet-300" />
-                      <span className="text-sm font-semibold text-zinc-300">auth_middleware.ts</span>
-                      <span className="rounded-full border border-violet-500/40 bg-violet-500/10 px-3 py-1 text-[10px] font-black text-violet-300">TypeScript</span>
+                      <Code2 className="size-4 text-foreground" />
+                      <span className="text-sm font-semibold text-muted-foreground">auth_middleware.ts</span>
+                      <span className="rounded-full border border-border bg-muted px-3 py-1 text-[10px] font-black text-foreground">TypeScript</span>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <span className="hidden items-center gap-2 text-xs font-black text-emerald-300 sm:flex">
-                        <span className="size-2 rounded-full bg-emerald-400" />
-                        AI Driver: Ready
-                      </span>
-                      <SlidersHorizontal className="size-4 text-zinc-400" />
-                    </div>
+                    <span className="text-xs font-black capitalize text-muted-foreground">{role} context</span>
                   </div>
 
                   <div className="relative min-h-[570px] overflow-auto p-6">
                     <textarea
                       value={code}
-                      onChange={(event) => setCode(event.target.value)}
+                      onChange={(event) => {
+                        setCode(event.target.value);
+                        setFeedback(null);
+                        setError(null);
+                        clientRequestIdRef.current = null;
+                        if (startedAtRef.current === null) startedAtRef.current = Date.now();
+                      }}
                       readOnly={role === 'navigator'}
                       spellCheck={false}
-                      className="min-h-[500px] w-[920px] resize-none bg-transparent font-mono text-sm font-semibold leading-7 text-zinc-100 outline-none"
+                      className="min-h-[500px] w-[920px] resize-none bg-transparent text-sm font-semibold leading-7 text-foreground outline-none"
                     />
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-700 bg-[#18191b] px-5 py-3 text-xs font-semibold text-zinc-400">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-card px-5 py-3 text-xs font-semibold text-muted-foreground">
                     <div className="flex gap-5">
                       <span>UTF-8</span>
                       <span>Spaces: 2</span>
                     </div>
                     <div className="flex gap-5">
-                      <span>Ln 19, Col 1</span>
-                      <span className="font-black text-emerald-300">DevSpeak Sync: Active</span>
+                      <span>{code.split('\n').length} lines</span>
+                      <span className="font-black text-muted-foreground">{role === 'navigator' ? 'Context only' : 'Editable draft'}</span>
                     </div>
                   </div>
                 </div>
               </section>
 
               <aside className="space-y-6">
-                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.25em] text-zinc-400">
-                  <Mic className="size-4 text-violet-300" />
-                  Navigator Console <span className="text-zinc-500">(You)</span>
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.25em] text-muted-foreground">
+                  <MessageSquare className="size-4 text-foreground" />
+                  {role === 'navigator' ? 'Navigator Instruction' : 'Driver Explanation'}
                 </div>
 
-                <section className="rounded-lg bg-[#18191b] p-6">
-                  <p className="mb-3 text-xs font-black uppercase tracking-wider text-zinc-400">
-                    <span className="rounded-full bg-violet-500/20 px-3 py-1 text-violet-300">Current Goal</span>
-                    <span className="ml-3">Pair Session #124</span>
+                <section className="rounded-lg bg-card p-6">
+                  <p className="mb-3 text-xs font-black uppercase tracking-wider text-muted-foreground">
+                    <span className="rounded-full bg-muted px-3 py-1 text-foreground">Current Goal</span>
                   </p>
-                  <h2 className="text-xl font-black text-white">{task}</h2>
-                  <p className="mt-4 text-sm font-semibold leading-7 text-zinc-400">
+                  <h2 className="text-xl font-black text-foreground">{task}</h2>
+                  <p className="mt-4 text-sm font-semibold leading-7 text-muted-foreground">
                     Explain to the Driver how to handle expired tokens versus malformed tokens specifically using a 401 vs 403 status code.
                   </p>
                 </section>
 
-                <section className="rounded-lg border border-zinc-700 bg-black p-5">
+                <section className="rounded-lg border border-border bg-background p-5">
                   <div className="mb-5 flex items-center gap-3">
-                    <span className="flex size-9 items-center justify-center rounded-full bg-[#f8ffc2] text-sm text-black">AI</span>
-                    <span className="text-xs font-black uppercase tracking-wider text-violet-300">AI Driver</span>
+                    <span className="flex size-9 items-center justify-center rounded-full bg-primary text-sm text-primary-foreground">AI</span>
+                    <span className="text-xs font-black uppercase tracking-wider text-foreground">Practice Console</span>
                   </div>
 
                   <div className="space-y-4">
+                    {chatHistory.length === 0 && (
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        {role === 'navigator'
+                          ? 'Write one clear instruction for the driver.'
+                          : 'Edit the code, then optionally explain your implementation.'}
+                      </p>
+                    )}
                     {chatHistory.map((message, index) => (
                       <div key={`${message.timestamp}-${index}`} className={message.role === 'user' ? 'text-right' : ''}>
                         {message.role === 'user' && (
-                          <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-zinc-400">You (Navigator)</p>
+                          <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">You (Navigator)</p>
                         )}
                         <div className={`inline-block max-w-[92%] rounded-md p-4 text-left text-sm font-black leading-7 ${
                           message.role === 'user'
-                            ? 'border border-violet-500/30 bg-violet-500/10 text-white'
-                            : 'bg-[#18191b] text-white'
+                            ? 'border border-border bg-muted text-foreground'
+                            : 'bg-card text-foreground'
                         }`}>
                           {message.text}
                         </div>
@@ -383,7 +313,13 @@ export default function PairProgrammingModule() {
 
                   <textarea
                     value={chatInput}
-                    onChange={(event) => setChatInput(event.target.value)}
+                    onChange={(event) => {
+                      setChatInput(event.target.value);
+                      setFeedback(null);
+                      setError(null);
+                      clientRequestIdRef.current = null;
+                      if (startedAtRef.current === null) startedAtRef.current = Date.now();
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' && !event.shiftKey) {
                         event.preventDefault();
@@ -391,50 +327,152 @@ export default function PairProgrammingModule() {
                       }
                     }}
                     placeholder={role === 'navigator' ? 'Tell the driver what to do next...' : 'Explain your implementation or ask for feedback...'}
-                    className="mt-5 min-h-24 w-full resize-none rounded-md border border-zinc-700 bg-zinc-950 p-4 text-sm font-semibold leading-6 text-zinc-100 outline-none placeholder:text-zinc-600"
+                    className="mt-5 min-h-24 w-full resize-none rounded-md border border-border bg-background p-4 text-sm font-semibold leading-6 text-foreground outline-none placeholder:text-zinc-600"
                   />
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={loading || (role === 'navigator' ? !chatInput.trim() : !code.trim() || code === DEFAULT_CODE)}
+                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary px-5 py-3 text-sm font-black text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Send className="size-4" /> {loading ? 'Evaluating...' : 'Submit practice'}
+                  </button>
                 </section>
-
-                <section className="rounded-lg border border-zinc-800 bg-black p-4">
-                  <div className="grid grid-cols-[1fr_auto_auto] items-center gap-2 text-xs font-black text-white">
-                    <button type="button" onClick={() => setMode('text')} className={`h-9 rounded ${mode === 'text' ? 'bg-zinc-900 text-white' : 'text-zinc-400'}`}>
-                      ›_ Text Mode
-                    </button>
-                    <button type="button" onClick={() => setMode('voice')} className={`h-9 rounded border border-zinc-700 px-4 uppercase ${mode === 'voice' ? 'bg-violet-500/20 text-violet-300' : 'text-white'}`}>
-                      Push to Speak
-                    </button>
-                    <button type="button" className="inline-flex items-center gap-1 text-zinc-300">
-                      <CheckCircle2 className="size-4" />
-                      End Session
-                    </button>
-                  </div>
-                </section>
-
-                <button type="button" className="mx-auto flex size-20 items-center justify-center rounded-full bg-violet-400 text-black shadow-2xl shadow-violet-500/20 hover:bg-violet-300">
-                  <Mic className="size-9" />
-                </button>
-
-                <section className="space-y-3">
-                  {tips.map((tip, index) => (
-                    <div key={`${tip}-${index}`} className="rounded-md border border-zinc-800 bg-zinc-950 p-3 text-xs font-semibold leading-5 text-zinc-400">
-                      {tip}
-                    </div>
-                  ))}
-                </section>
+                {error && <p className="rounded-md border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</p>}
               </aside>
             </div>
+
+            {feedback && (
+              <section className="mt-8 space-y-6">
+                <article className="rounded-lg border border-border bg-muted p-6">
+                  <h2 className="text-sm font-black uppercase text-foreground">Summary</h2>
+                  <p className="mt-3 text-sm leading-7 text-foreground">{feedback.summary}</p>
+                </article>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <article className="rounded-lg border border-teal-500/25 bg-teal-500/5 p-5">
+                    <h3 className="font-black text-teal-300">Strengths</h3>
+                    <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                      {feedback.strengths.map((item) => <li key={item}>• {item}</li>)}
+                    </ul>
+                  </article>
+                  <article className="rounded-lg border border-orange-500/25 bg-orange-500/5 p-5">
+                    <h3 className="font-black text-orange-300">Improvements</h3>
+                    <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                      {feedback.improvements.map((item) => <li key={item}>• {item}</li>)}
+                    </ul>
+                  </article>
+                </div>
+                <article className="rounded-lg border border-border bg-card p-6">
+                  <h3 className="font-black text-foreground">
+                    {isDriverFeedback(feedback) ? 'Improved Code' : 'Improved Navigator Instruction'}
+                  </h3>
+                  <pre className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">{feedback.improvedAnswer}</pre>
+                </article>
+                <div className="grid gap-3 md:grid-cols-3">
+                  {feedback.communication_tips.map((tip, index) => (
+                    <article key={`${tip.title}-${index}`} className="rounded-lg border border-border bg-background p-4">
+                      <p className="text-sm font-black text-foreground">{tip.title}</p>
+                      <p className="mt-2 text-xs leading-6 text-muted-foreground">{tip.description}</p>
+                    </article>
+                  ))}
+                </div>
+                <div className="flex flex-col justify-center gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => loadAnswer(isDriverFeedback(feedback)
+                      ? { role: 'driver', task, code: feedback.improvedAnswer }
+                      : { role: 'navigator', instruction: feedback.improvedAnswer, code })}
+                    className="inline-flex items-center justify-center gap-2 rounded-md border border-border px-5 py-3 text-sm font-black text-foreground"
+                  >
+                    <Sparkles className="size-4" /> Use improved answer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (lastAnswer) loadAnswer(lastAnswer);
+                    }}
+                    disabled={!lastAnswer}
+                    className="inline-flex items-center justify-center gap-2 rounded-md border border-border px-5 py-3 text-sm font-black text-foreground"
+                  >
+                    <RefreshCcw className="size-4" /> Edit and try again
+                  </button>
+                </div>
+                <div className="grid gap-4 md:grid-cols-3">
+                  {(isDriverFeedback(feedback)
+                    ? [
+                        ['Correctness', feedback.correctness],
+                        ['Efficiency', feedback.efficiency],
+                        ['Readability', feedback.readability],
+                      ]
+                    : [
+                        ['Clarity', feedback.clarity],
+                        ['Effectiveness', feedback.effectiveness],
+                        ['Precision', feedback.precision],
+                      ]).map(([label, value]) => (
+                    <article key={label} className="rounded-lg border border-border bg-card p-5">
+                      <p className="text-xs font-black uppercase text-muted-foreground">{label}</p>
+                      <p className="mt-2 text-3xl font-black text-foreground">{value}<span className="text-sm text-muted-foreground">/100</span></p>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            <section className="mt-8 rounded-lg border border-border bg-card p-6">
+              <h2 className="flex items-center gap-2 text-lg font-black text-foreground">
+                <History className="size-5 text-foreground" /> Previous Pair Practices
+              </h2>
+              {attemptsLoading ? (
+                <p className="mt-4 text-sm text-muted-foreground">Loading pair programming attempts...</p>
+              ) : attempts.length === 0 ? (
+                <p className="mt-4 text-sm text-muted-foreground">No attempts yet. Complete the starter task to begin tracking progress.</p>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {attempts.map((attempt) => (
+                    <details key={attempt.id} className="rounded-md border border-border bg-background/30 p-4">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold">
+                        <span className="capitalize">{attempt.answer?.role ?? 'Pair practice'} · {new Date(attempt.createdAt).toLocaleString()}</span>
+                        <span className={attempt.status === 'completed' ? 'text-teal-300' : attempt.status === 'failed' ? 'text-red-300' : 'text-orange-300'}>
+                          {attempt.evaluation ? `${sessionScore(attempt.evaluation)}/100` : attempt.status}
+                        </span>
+                      </summary>
+                      <div className="mt-4 space-y-3 border-t border-border pt-4 text-sm text-muted-foreground">
+                        {attempt.answer && (
+                          <pre className="max-h-48 overflow-auto whitespace-pre-wrap text-muted-foreground">
+                            {attempt.answer.role === 'driver' ? attempt.answer.code : attempt.answer.instruction}
+                          </pre>
+                        )}
+                        {attempt.evaluation && <p>{attempt.evaluation.summary}</p>}
+                        {attempt.status === 'failed' && !attempt.evaluation && (
+                          <p className="text-red-300">This evaluation failed. Load it and submit as a new attempt.</p>
+                        )}
+                        {attempt.answer && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (attempt.answer) loadAnswer(attempt.answer);
+                            }}
+                            className="rounded-md border border-border px-4 py-2 text-xs font-black text-foreground hover:border-foreground"
+                          >
+                            Load into practice
+                          </button>
+                        )}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
 
-          <footer className="flex flex-col gap-4 border-t border-zinc-800 px-5 py-5 text-xs font-semibold text-zinc-400 lg:flex-row lg:items-center lg:justify-between lg:px-10">
+          <footer className="flex flex-col gap-4 border-t border-border px-5 py-5 text-xs font-semibold text-muted-foreground lg:flex-row lg:items-center lg:justify-between lg:px-10">
             <p>© 2026 DevSpeak AI • System Status: Operational</p>
             <div className="flex flex-wrap gap-5">
-              <Link href="#" className="hover:text-white">Documentation</Link>
-              <Link href="#" className="hover:text-white">API Reference</Link>
-              <Link href="#" className="hover:text-white">Privacy Policy</Link>
+              <span>Documentation</span>
+              <span>API Reference</span>
+              <span>Privacy Policy</span>
             </div>
           </footer>
-        </section>
-      </div>
-    </main>
+    </div>
   );
 }

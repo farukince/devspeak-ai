@@ -8,48 +8,36 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['var(--font-geist-sans)', 'system-ui', 'sans-serif'],
-        mono: ['var(--font-geist-mono)', 'monospace'],
+        sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       colors: {
         background: 'var(--background)',
         foreground: 'var(--foreground)',
-        // Primary orange palette
-        "primary": "#F97316",
-        "primary-light": "#FB923C",
-        "primary-dark": "#EA580C",
-        // Cream and warm tones
-        "cream": "#FEF7ED",
-        "cream-dark": "#FED7AA",
-        "warm-white": "#FFFBF5",
-        // Background colors
-        "background-light": "#FFFBF5",
-        "background-dark": "#1C1917",
-        "surface-dark": "#292524",
-        // Border colors
-        "border-light": "#FED7AA",
-        "border-dark": "#44403C",
-        "input-border": "#D6D3D1",
-        // Text colors
-        "text-secondary": "#78716C",
-        "text-warm": "#A8A29E"
-      },
-      animation: {
-        'fade-in': 'fadeIn 0.5s ease-in-out',
-        'slide-up': 'slideUp 0.3s ease-out',
-      },
-      keyframes: {
-        fadeIn: {
-          '0%': { opacity: '0' },
-          '100%': { opacity: '1' },
-        },
-        slideUp: {
-          '0%': { transform: 'translateY(10px)', opacity: '0' },
-          '100%': { transform: 'translateY(0)', opacity: '1' },
-        },
+        card: 'var(--card)',
+        'card-foreground': 'var(--card-foreground)',
+        primary: 'var(--primary)',
+        'primary-foreground': 'var(--primary-foreground)',
+        secondary: 'var(--secondary)',
+        'secondary-foreground': 'var(--secondary-foreground)',
+        muted: 'var(--muted)',
+        'muted-foreground': 'var(--muted-foreground)',
+        accent: 'var(--accent)',
+        'accent-foreground': 'var(--accent-foreground)',
+        destructive: 'var(--destructive)',
+        border: 'var(--border)',
+        input: 'var(--input)',
+        ring: 'var(--ring)',
+        sidebar: 'var(--sidebar)',
+        'sidebar-foreground': 'var(--sidebar-foreground)',
+        'sidebar-primary': 'var(--sidebar-primary)',
+        'sidebar-primary-foreground': 'var(--sidebar-primary-foreground)',
+        'sidebar-accent': 'var(--sidebar-accent)',
+        'sidebar-accent-foreground': 'var(--sidebar-accent-foreground)',
+        'sidebar-border': 'var(--sidebar-border)',
+        'sidebar-ring': 'var(--sidebar-ring)',
       },
     },
   },
   plugins: [],
 }
-

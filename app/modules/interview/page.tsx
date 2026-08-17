@@ -1,416 +1,495 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import {
-  BarChart3,
-  Bell,
-  BookOpen,
-  ChevronRight,
-  Code2,
-  Grid2X2,
-  LogOut,
-  MessageSquare,
-  Mic,
-  MoreVertical,
-  PauseCircle,
-  PenTool,
-  Search,
-  Send,
-  Settings,
-  Sparkles,
-  Users,
-} from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Clock3, History, MessageSquare, Mic, RefreshCcw, Send, Sparkles } from 'lucide-react';
+import { VoiceRecorder } from '@/components/VoiceRecorder';
+import type { InterviewEvaluation } from '@/lib/ai/schemas';
+import type {
+  InterviewDifficulty,
+  InterviewExperience,
+  InterviewInputMode,
+  InterviewRole,
+  InterviewTechnology,
+} from '@/lib/validation/interview';
 
-const SAMPLE_QUESTIONS = {
-  Frontend: [
-    "Explain the difference between React's useState and useEffect hooks.",
-    'What is the Virtual DOM in React and how does it improve performance?',
-    "Describe the CSS Box Model and how it differs from 'box-sizing: border-box'.",
-    'How do you optimize a React application for performance?',
+interface InterviewScenario {
+  id: string;
+  question: string;
+  role: InterviewRole;
+  experienceLevel: InterviewExperience;
+  technologyArea: InterviewTechnology;
+  difficulty: InterviewDifficulty;
+}
+
+interface InterviewAttempt {
+  id: string;
+  createdAt: string;
+  status: 'draft' | 'processing' | 'completed' | 'failed';
+  answer: {
+    scenarioId: string | null;
+    content: string;
+    inputMode: InterviewInputMode;
+    durationSeconds: number;
+  };
+  scenario: InterviewScenario | null;
+  evaluation: InterviewEvaluation | null;
+}
+
+const roles: Array<{ value: InterviewRole; label: string }> = [
+  { value: 'frontend_engineer', label: 'Frontend Engineer' },
+  { value: 'backend_engineer', label: 'Backend Engineer' },
+  { value: 'devops_engineer', label: 'DevOps Engineer' },
+];
+const experiences: Array<{ value: InterviewExperience; label: string }> = [
+  { value: 'junior', label: 'Junior' },
+  { value: 'mid', label: 'Mid-level' },
+  { value: 'senior', label: 'Senior' },
+];
+const difficulties: Array<{ value: InterviewDifficulty; label: string }> = [
+  { value: 'medium', label: 'Medium' },
+  { value: 'hard', label: 'Hard' },
+];
+const technologies: Record<InterviewRole, Array<{ value: InterviewTechnology; label: string }>> = {
+  frontend_engineer: [
+    { value: 'react', label: 'React' },
+    { value: 'web_performance', label: 'Web Performance' },
   ],
-  Backend: [
-    'What is the difference between a process and a thread in modern operating systems?',
-    'Explain RESTful API design principles.',
-    'How would you handle authentication and authorization in a microservices architecture?',
-    'Describe the concept of database sharding.',
+  backend_engineer: [
+    { value: 'nodejs', label: 'Node.js' },
+    { value: 'api_design', label: 'API Design' },
   ],
-  Fullstack: [
-    'How does CORS work and why is it important?',
-    'Explain the difference between Server-Side Rendering and Client-Side Rendering.',
-    'How would you design a rate limiter for an API?',
-    'What are WebSockets and when should you use them?',
-  ],
-  DevOps: [
-    'What is the difference between Docker and a Virtual Machine?',
-    'Explain the concept of CI/CD pipelines.',
-    'How do you ensure zero-downtime deployments?',
-    'What is Infrastructure as Code?',
+  devops_engineer: [
+    { value: 'containers', label: 'Docker & Kubernetes' },
+    { value: 'cicd', label: 'CI/CD' },
   ],
 };
 
-interface InterviewFeedback {
-  accuracy: number;
-  depth: number;
-  clarity: number;
-  feedback: string;
-  key_strengths: string[];
-  areas_for_growth: string[];
-  recommended_phrasing: string;
-}
-
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: Grid2X2 },
-  { href: '/modules/interview', label: 'Interview', icon: BookOpen },
-  { href: '/modules/standup', label: 'Stand-up', icon: MessageSquare },
-  { href: '/modules/code-review', label: 'Code Review', icon: Code2 },
-  { href: '/modules/writing', label: 'Writing', icon: PenTool },
-  { href: '/modules/pair-programming', label: 'Pair Programming', icon: Users },
-  { href: '/modules/progress', label: 'Progress', icon: BarChart3 },
-];
-
 function formatTime(seconds: number) {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+  const remainder = (seconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${remainder}`;
 }
 
-function averageScore(feedback: InterviewFeedback | null) {
-  if (!feedback) return 84;
-  return Math.round((feedback.accuracy + feedback.depth + feedback.clarity) / 3);
+function ScoreCard({ label, value, accent = false }: { label: string; value: number; accent?: boolean }) {
+  return (
+    <article className={`rounded-lg border p-5 ${accent ? 'border-border bg-muted' : 'border-border bg-card'}`}>
+      <p className="text-xs font-black uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className={`mt-2 text-3xl font-black ${accent ? 'text-foreground' : 'text-foreground'}`}>{Math.round(value)}<span className="text-sm text-muted-foreground">/100</span></p>
+    </article>
+  );
+}
+
+async function fetchInterviewAttempts() {
+  const response = await fetch('/api/interview?view=attempts', { cache: 'no-store' });
+  if (!response.ok) throw new Error('Interview history could not be loaded.');
+  return (await response.json() as { attempts: InterviewAttempt[] }).attempts;
 }
 
 export default function InterviewModule() {
-  const [selectedRole, setSelectedRole] = useState<keyof typeof SAMPLE_QUESTIONS>('Backend');
-  const [questionIndex, setQuestionIndex] = useState(0);
+  const [role, setRole] = useState<InterviewRole>('backend_engineer');
+  const [experienceLevel, setExperienceLevel] = useState<InterviewExperience>('mid');
+  const [technologyArea, setTechnologyArea] = useState<InterviewTechnology>('nodejs');
+  const [difficulty, setDifficulty] = useState<InterviewDifficulty>('medium');
+  const [inputMode, setInputMode] = useState<InterviewInputMode>('written');
+  const [scenario, setScenario] = useState<InterviewScenario | null>(null);
   const [answer, setAnswer] = useState('');
-  const [feedback, setFeedback] = useState<InterviewFeedback | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [timer, setTimer] = useState(252);
+  const [feedback, setFeedback] = useState<InterviewEvaluation | null>(null);
+  const [scenarioLoading, setScenarioLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [durationSeconds, setDurationSeconds] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
-  const [mode, setMode] = useState<'voice' | 'text'>('voice');
-
-  const currentQuestion = SAMPLE_QUESTIONS[selectedRole][questionIndex];
-  const score = averageScore(feedback);
-
-  const transcript = useMemo(() => [
-    {
-      speaker: 'SYSTEM AI',
-      time: '09:00 AM',
-      text: `Welcome to your mock interview at TechFlow. I'm Sarah, your technical assessor today. Let's start with a foundational question: ${currentQuestion}`,
-      tone: 'system',
-    },
-    {
-      speaker: 'YOU',
-      time: '09:01 AM',
-      text: answer || 'A process is an independent execution unit with its own memory space. A thread is a subset of a process, sharing memory with other threads in the same process.',
-      tone: 'user',
-    },
-    {
-      speaker: 'SYSTEM AI',
-      time: '09:02 AM',
-      text: feedback?.feedback || 'Good. Now, how would you handle a race condition between two threads accessing a shared variable in a high-concurrency environment?',
-      tone: 'system',
-    },
-  ], [answer, currentQuestion, feedback]);
+  const [voiceConfirmed, setVoiceConfirmed] = useState(false);
+  const [attempts, setAttempts] = useState<InterviewAttempt[]>([]);
+  const [attemptsLoading, setAttemptsLoading] = useState(true);
+  const [scenarioRefreshKey, setScenarioRefreshKey] = useState(0);
+  const clientRequestIdRef = useRef<string | null>(null);
+  const scenarioOverrideRef = useRef<InterviewScenario | null>(null);
+  const scenarioToExcludeRef = useRef<string | null>(null);
+  const answerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    if (!timerActive || timer <= 0) return;
-    const interval = setInterval(() => setTimer((prev) => prev - 1), 1000);
-    return () => clearInterval(interval);
-  }, [timerActive, timer]);
+    if (!timerActive) return;
+    const interval = window.setInterval(() => setDurationSeconds((value) => Math.min(value + 1, 3600)), 1000);
+    return () => window.clearInterval(interval);
+  }, [timerActive]);
 
   useEffect(() => {
-    setQuestionIndex(0);
-    setAnswer('');
-    setFeedback(null);
-    setTimer(252);
-    setTimerActive(false);
-  }, [selectedRole]);
+    const override = scenarioOverrideRef.current;
+    if (
+      override
+      && override.role === role
+      && override.experienceLevel === experienceLevel
+      && override.technologyArea === technologyArea
+      && override.difficulty === difficulty
+    ) {
+      scenarioOverrideRef.current = null;
+      setScenario(override);
+      setScenarioLoading(false);
+      return;
+    }
 
-  const handleNextQuestion = () => {
-    setQuestionIndex((prev) => (prev + 1) % SAMPLE_QUESTIONS[selectedRole].length);
+    const controller = new AbortController();
+    let active = true;
+    const params = new URLSearchParams({ role, experienceLevel, technologyArea, difficulty });
+    const excludeScenarioId = scenarioToExcludeRef.current;
+    scenarioToExcludeRef.current = null;
+    if (excludeScenarioId) params.set('excludeScenarioId', excludeScenarioId);
+    setScenarioLoading(true);
+    setScenario(null);
     setAnswer('');
     setFeedback(null);
-    setTimer(300);
+    setError(null);
+    setDurationSeconds(0);
     setTimerActive(false);
+    setVoiceConfirmed(false);
+    clientRequestIdRef.current = null;
+    fetch(`/api/interview?${params}`, { signal: controller.signal, cache: 'no-store' })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Scenario could not be loaded.');
+        if (active) setScenario((payload as { scenario: InterviewScenario }).scenario);
+      })
+      .catch((requestError) => {
+        if (active && requestError instanceof Error && requestError.name !== 'AbortError') setError(requestError.message);
+      })
+      .finally(() => {
+        if (active) setScenarioLoading(false);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [role, experienceLevel, technologyArea, difficulty, scenarioRefreshKey]);
+
+  useEffect(() => {
+    let active = true;
+    fetchInterviewAttempts()
+      .then((items) => {
+        if (active) setAttempts(items);
+      })
+      .catch((attemptError) => console.warn(attemptError))
+      .finally(() => {
+        if (active) setAttemptsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const changeRole = (nextRole: InterviewRole) => {
+    setRole(nextRole);
+    setTechnologyArea(technologies[nextRole][0].value);
   };
 
-  const handleSubmit = async () => {
-    if (!answer.trim()) return;
-    setTimerActive(false);
-    setLoading(true);
+  const changeInputMode = (mode: InterviewInputMode) => {
+    if (mode === inputMode) return;
+    setInputMode(mode);
+    setAnswer('');
     setFeedback(null);
+    setError(null);
+    setDurationSeconds(0);
+    setTimerActive(false);
+    setVoiceConfirmed(false);
+    clientRequestIdRef.current = null;
+  };
 
+  const prepareRetry = (nextAnswer: string, mode: InterviewInputMode = inputMode) => {
+    setAnswer(nextAnswer);
+    setInputMode(mode);
+    setFeedback(null);
+    setError(null);
+    setDurationSeconds(0);
+    setTimerActive(mode === 'written' && Boolean(nextAnswer));
+    setVoiceConfirmed(mode === 'voice');
+    clientRequestIdRef.current = null;
+    setTimeout(() => answerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
+
+  const loadAttempt = (attempt: InterviewAttempt) => {
+    if (!attempt.scenario) return;
+    const sameContext = (
+      attempt.scenario.role === role
+      && attempt.scenario.experienceLevel === experienceLevel
+      && attempt.scenario.technologyArea === technologyArea
+      && attempt.scenario.difficulty === difficulty
+    );
+    scenarioOverrideRef.current = sameContext ? null : attempt.scenario;
+    setRole(attempt.scenario.role);
+    setExperienceLevel(attempt.scenario.experienceLevel);
+    setTechnologyArea(attempt.scenario.technologyArea);
+    setDifficulty(attempt.scenario.difficulty);
+    setScenario(attempt.scenario);
+    setInputMode(attempt.answer.inputMode);
+    setAnswer(attempt.answer.content);
+    setFeedback(null);
+    setError(null);
+    setDurationSeconds(0);
+    setTimerActive(attempt.answer.inputMode === 'written');
+    setVoiceConfirmed(attempt.answer.inputMode === 'voice');
+    clientRequestIdRef.current = null;
+    setTimeout(() => answerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
+
+  const submitAnswer = async () => {
+    if (!scenario || !answer.trim() || (inputMode === 'voice' && !voiceConfirmed)) return;
+    setSubmitting(true);
+    setTimerActive(false);
+    setFeedback(null);
+    setError(null);
     try {
+      const clientRequestId = clientRequestIdRef.current ?? crypto.randomUUID();
+      clientRequestIdRef.current = clientRequestId;
       const response = await fetch('/api/interview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: selectedRole, question: currentQuestion, answer }),
-      });
-
-      if (!response.ok) throw new Error('API request failed');
-      const result: InterviewFeedback = await response.json();
-      setFeedback(result);
-
-      await fetch('/api/log-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: 'anonymous',
-          moduleType: 'interview',
-          taskName: currentQuestion,
-          scores: {
-            accuracy: result.accuracy,
-            depth: result.depth,
-            clarity: result.clarity,
-            overall: averageScore(result),
-          },
-          userInput: answer,
-          aiFeedback: result.feedback,
+          clientRequestId,
+          scenarioId: scenario.id,
+          answer,
+          inputMode,
+          durationSeconds,
         }),
-      }).catch(console.warn);
-    } catch (error) {
-      console.error('Error:', error);
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Interview evaluation failed.');
+      setFeedback((payload as { evaluation: InterviewEvaluation }).evaluation);
+      clientRequestIdRef.current = null;
+      fetchInterviewAttempts().then(setAttempts).catch((attemptError) => console.warn(attemptError));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Interview evaluation failed.');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
   return (
-    <main className="min-h-screen bg-black text-zinc-100 font-mono">
-      <div className="flex min-h-screen border border-zinc-800 bg-black">
-        <aside className="hidden lg:flex w-72 shrink-0 flex-col border-r border-zinc-800 bg-[#18191b]">
-          <div className="flex h-24 items-center px-10">
-            <Link href="/dashboard" className="flex items-center gap-3">
-              <span className="flex size-9 items-center justify-center rounded-lg bg-violet-400 text-black">
-                <Sparkles className="size-5" />
-              </span>
-              <span className="text-xl font-black tracking-tight text-violet-300">DevSpeak AI</span>
-            </Link>
-          </div>
+    <div className="space-y-8">
+        <div>
+          <h1 className="text-3xl font-black text-foreground">Technical Interview</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Choose a scenario, answer naturally, and receive separate technical and communication feedback.</p>
+        </div>
 
-          <nav className="flex flex-1 flex-col gap-2 px-5 py-2">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const active = item.href === '/modules/interview';
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold transition-colors ${
-                    active
-                      ? 'bg-violet-500/15 text-violet-300'
-                      : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
-                  }`}
-                >
-                  <Icon className="size-4" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="border-t border-zinc-800 px-5 py-6">
-            <Link href="/settings" className="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100">
-              <Settings className="size-4" />
-              Settings
-            </Link>
-            <Link href="/" className="mt-2 flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold text-red-400 hover:bg-red-500/10">
-              <LogOut className="size-4" />
-              Logout
-            </Link>
-          </div>
-        </aside>
-
-        <section className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-16 items-center justify-between border-b border-zinc-800 px-5 lg:px-10">
-            <div className="flex h-10 w-full max-w-md items-center gap-3 rounded-md bg-zinc-900 px-4 text-sm text-zinc-400 ring-1 ring-zinc-800">
-              <Search className="size-4" />
-              <span className="truncate">Search simulations, docs...</span>
-              <kbd className="ml-auto hidden rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300 sm:inline">⌘ K</kbd>
-            </div>
-
-            <div className="flex items-center gap-5">
-              <button type="button" className="relative rounded-md p-2 text-zinc-300 hover:bg-zinc-900">
-                <Bell className="size-5" />
-                <span className="absolute right-2 top-2 size-1.5 rounded-full bg-violet-400" />
-              </button>
-              <div className="hidden h-7 w-px bg-zinc-800 sm:block" />
-              <div className="hidden text-right sm:block">
-                <p className="text-sm font-black leading-none text-white">Alex Dev</p>
-                <p className="mt-1 text-[11px] text-zinc-400">Lvl 24 Senior Eng</p>
-              </div>
-              <div className="relative size-10 rounded-full bg-gradient-to-br from-violet-300 to-emerald-300 p-0.5">
-                <div className="flex size-full items-center justify-center rounded-full bg-zinc-900 text-sm font-black">AD</div>
-                <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-black bg-emerald-400" />
-              </div>
-            </div>
-          </header>
-
-          <div className="grid flex-1 xl:grid-cols-[minmax(0,1fr)_384px]">
-            <section className="relative flex min-h-[calc(100vh-64px)] flex-col border-r border-zinc-800 px-5 py-8 lg:px-10">
-              <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
-                <div className="flex flex-wrap items-center gap-4">
-                  <select
-                    value={selectedRole}
-                    onChange={(event) => setSelectedRole(event.target.value as keyof typeof SAMPLE_QUESTIONS)}
-                    className="h-9 rounded-full border border-zinc-700 bg-zinc-950 px-4 text-xs font-black uppercase text-white outline-none"
-                  >
-                    <option value="Backend">Scenario: Senior Backend Engineer</option>
-                    <option value="Frontend">Scenario: Frontend Engineer</option>
-                    <option value="Fullstack">Scenario: Fullstack Developer</option>
-                    <option value="DevOps">Scenario: DevOps Engineer</option>
-                  </select>
-                  <span className="inline-flex items-center gap-2 text-sm font-black text-zinc-400">
-                    <PauseCircle className="size-4 text-violet-300" />
-                    Time Elapsed: {formatTime(300 - timer)}
-                  </span>
-                </div>
-                <span className="inline-flex h-9 items-center gap-2 rounded-full border border-zinc-700 px-4 text-xs font-black uppercase text-zinc-300">
-                  <span className="size-2 rounded-full bg-zinc-500" />
-                  {timerActive ? 'Live' : 'Ready'}
-                </span>
-              </div>
-
-              <div className="flex flex-1 flex-col items-center justify-center pb-8 text-center">
-                <div className="relative mb-12">
-                  <div className="flex size-44 items-center justify-center rounded-full border-[10px] border-zinc-800 bg-[#f8ffc2] text-6xl font-black text-zinc-900 shadow-2xl shadow-black md:size-48">
-                    S
-                  </div>
-                  <span className="absolute bottom-3 right-3 size-12 rounded-full border-2 border-black bg-yellow-300" />
-                </div>
-
-                <h1 className="max-w-4xl text-3xl font-black tracking-tight text-white md:text-4xl">
-                  Ready to start the technical screening
-                </h1>
-                <p className="mt-5 max-w-2xl text-sm font-semibold leading-7 text-zinc-400 md:text-base">
-                  Sarah is evaluating your technical depth and clarity of communication. Speak clearly and use technical terminology appropriately.
-                </p>
-
-                <div className="my-20 flex items-center gap-1">
-                  {Array.from({ length: 28 }).map((_, index) => (
-                    <span key={index} className="h-2 w-1 rounded-full bg-zinc-900" />
-                  ))}
-                </div>
-
-                <div className="mb-8 grid h-11 w-full max-w-xs grid-cols-2 rounded-md border border-zinc-700 bg-zinc-950 p-1">
-                  <button
-                    type="button"
-                    onClick={() => setMode('voice')}
-                    className={`inline-flex items-center justify-center gap-2 rounded text-sm font-black ${
-                      mode === 'voice' ? 'bg-violet-500/25 text-violet-300' : 'text-zinc-400'
-                    }`}
-                  >
-                    <Mic className="size-4" />
-                    Voice Mode
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMode('text')}
-                    className={`inline-flex items-center justify-center gap-2 rounded text-sm font-black ${
-                      mode === 'text' ? 'bg-violet-500/25 text-violet-300' : 'text-zinc-400'
-                    }`}
-                  >
-                    <MessageSquare className="size-4" />
-                    Text Mode
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setTimerActive((active) => !active)}
-                  className="flex size-24 items-center justify-center rounded-full bg-violet-400 text-black shadow-2xl shadow-violet-500/20 hover:bg-violet-300 md:size-28"
-                >
-                  <Mic className="size-11" />
+        <section className="rounded-lg border border-border bg-card p-5">
+          <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">1. Choose interview context</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Your selections determine the interview question and evaluation depth.</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <label className="text-xs font-black uppercase text-muted-foreground">Role
+            <select value={role} onChange={(event) => changeRole(event.target.value as InterviewRole)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground">
+              {roles.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-black uppercase text-muted-foreground">Experience
+            <select value={experienceLevel} onChange={(event) => setExperienceLevel(event.target.value as InterviewExperience)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground">
+              {experiences.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-black uppercase text-muted-foreground">Technology
+            <select value={technologyArea} onChange={(event) => setTechnologyArea(event.target.value as InterviewTechnology)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground">
+              {technologies[role].map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-black uppercase text-muted-foreground">Difficulty
+            <select value={difficulty} onChange={(event) => setDifficulty(event.target.value as InterviewDifficulty)} className="mt-2 h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground">
+              {difficulties.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+          <div className="text-xs font-black uppercase text-muted-foreground">Input Mode
+            <div className="mt-2 grid h-11 grid-cols-2 rounded-md border border-border bg-background p-1">
+              {(['written', 'voice'] as const).map((mode) => (
+                <button key={mode} type="button" onClick={() => changeInputMode(mode)} className={`rounded text-xs ${inputMode === mode ? 'bg-muted text-foreground' : 'text-muted-foreground'}`}>
+                  {mode === 'written' ? <MessageSquare className="mx-auto size-4" /> : <Mic className="mx-auto size-4" />}
                 </button>
-                <p className="mt-5 text-sm font-black uppercase text-zinc-400">Tap Space to Record</p>
-
-                <div className="mt-8 flex gap-3">
-                  <button type="button" onClick={handleNextQuestion} className="h-10 rounded-md border border-zinc-700 px-5 text-xs font-black text-white hover:bg-zinc-900">
-                    Next Question
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSubmit}
-                    disabled={loading || !answer.trim()}
-                    className="inline-flex h-10 items-center gap-2 rounded-md bg-violet-400 px-5 text-xs font-black text-black hover:bg-violet-300 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {loading ? <span className="size-4 rounded-full border-2 border-black/30 border-t-black animate-spin" /> : <Send className="size-4" />}
-                    Analyze
-                  </button>
-                </div>
-              </div>
-
-              {mode === 'text' && (
-                <div className="mx-auto mb-8 w-full max-w-4xl rounded-lg border border-zinc-700 bg-zinc-950 p-4">
-                  <textarea
-                    value={answer}
-                    onChange={(event) => {
-                      setAnswer(event.target.value);
-                      if (!timerActive && event.target.value) setTimerActive(true);
-                    }}
-                    placeholder="Type your answer here..."
-                    className="min-h-32 w-full resize-none bg-transparent text-sm font-semibold leading-7 text-zinc-100 outline-none placeholder:text-zinc-600"
-                  />
-                </div>
-              )}
-            </section>
-
-            <aside className="flex min-h-[calc(100vh-64px)] flex-col bg-[#18191b]">
-              <div className="flex h-16 items-center justify-between border-b border-zinc-800 px-6">
-                <h2 className="flex items-center gap-3 text-base font-black uppercase tracking-wider text-white">
-                  <span className="text-violet-300">›_</span>
-                  Live Transcription
-                </h2>
-                <MoreVertical className="size-5 text-zinc-400" />
-              </div>
-
-              <div className="flex-1 space-y-7 overflow-y-auto p-6">
-                {transcript.map((entry, index) => (
-                  <div key={`${entry.speaker}-${index}`} className={entry.tone === 'user' ? 'ml-8' : ''}>
-                    <div className={`mb-3 flex items-center gap-2 text-[10px] font-black uppercase ${entry.tone === 'user' ? 'justify-end text-cyan-300' : 'text-violet-300'}`}>
-                      <span>{entry.speaker}</span>
-                      <span className="text-zinc-500">{entry.time}</span>
-                    </div>
-                    <div className={`rounded-md border p-4 text-sm font-black leading-7 ${
-                      entry.tone === 'user'
-                        ? 'border-violet-500/30 bg-violet-500/10 text-violet-200'
-                        : 'border-zinc-700 bg-zinc-950 text-white'
-                    }`}>
-                      {entry.text}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="border-t border-zinc-800 p-5">
-                <div className="mb-3 flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-zinc-400">
-                  <span>Predicted Score</span>
-                  <span>{score}% Accurate</span>
-                </div>
-                <div className="mb-4 h-2 rounded-full bg-zinc-700">
-                  <div className="h-full rounded-full bg-violet-400" style={{ width: `${score}%` }} />
-                </div>
-                <Link href="/modules/progress" className="flex h-11 items-center justify-center gap-2 rounded-md border border-zinc-700 text-xs font-black uppercase text-white hover:bg-zinc-900">
-                  View Live Feedback
-                  <ChevronRight className="size-4" />
-                </Link>
-              </div>
-            </aside>
-          </div>
-
-          <footer className="flex flex-col gap-4 border-t border-zinc-800 px-5 py-5 text-xs font-semibold text-zinc-400 lg:flex-row lg:items-center lg:justify-between lg:px-10">
-            <p>© 2026 DevSpeak AI • System Status: Operational</p>
-            <div className="flex flex-wrap gap-5">
-              <Link href="#" className="hover:text-white">Documentation</Link>
-              <Link href="#" className="hover:text-white">API Reference</Link>
-              <Link href="#" className="hover:text-white">Privacy Policy</Link>
+              ))}
             </div>
-          </footer>
+          </div>
+          </div>
         </section>
-      </div>
-    </main>
+
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <article ref={answerRef} className="scroll-mt-6 rounded-lg border border-border bg-card p-6">
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-xs font-black uppercase tracking-widest text-foreground">2. Interview Question</p>
+              <span className="flex items-center gap-2 text-sm font-bold text-muted-foreground"><Clock3 className="size-4" /> {formatTime(durationSeconds)}</span>
+            </div>
+            <h2 className="mt-5 text-xl font-black leading-8 text-foreground">
+              {scenarioLoading ? 'Loading an appropriate question...' : scenario?.question ?? 'No scenario available.'}
+            </h2>
+            {!scenarioLoading && scenario && (
+              <button
+                type="button"
+                onClick={() => {
+                  scenarioToExcludeRef.current = scenario.id;
+                  setScenarioRefreshKey((value) => value + 1);
+                }}
+                className="mt-4 inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-xs font-black text-muted-foreground hover:border-foreground"
+              >
+                <RefreshCcw className="size-3" /> Try another question
+              </button>
+            )}
+            {!scenarioLoading && !scenario && (
+              <button
+                type="button"
+                onClick={() => setScenarioRefreshKey((value) => value + 1)}
+                className="mt-4 rounded-md border border-border px-4 py-2 text-xs font-black text-foreground"
+              >
+                Retry scenario
+              </button>
+            )}
+            {inputMode === 'voice' && (
+              <div className="mt-6">
+                <VoiceRecorder
+                  moduleType="interview"
+                  scenarioId={scenario?.id}
+                  maxDurationSeconds={300}
+                  onTranscript={(result) => {
+                    setAnswer(result.transcript);
+                    setDurationSeconds(result.durationSeconds);
+                    setTimerActive(false);
+                    setVoiceConfirmed(true);
+                    clientRequestIdRef.current = result.clientRequestId;
+                    setError(null);
+                  }}
+                />
+              </div>
+            )}
+            <label className="mt-8 block text-xs font-black uppercase tracking-wide text-muted-foreground">
+              {inputMode === 'voice' ? 'Voice transcript (editable)' : 'Your answer'}
+              <textarea
+                value={answer}
+                onChange={(event) => {
+                  setAnswer(event.target.value);
+                  setError(null);
+                  clientRequestIdRef.current = null;
+                  if (inputMode === 'voice') setVoiceConfirmed(false);
+                  if (inputMode === 'written' && event.target.value && !timerActive) setTimerActive(true);
+                }}
+                disabled={!scenario}
+                placeholder={inputMode === 'voice' ? 'Your recorded transcript will appear here. Review and edit it before evaluation.' : 'Explain your reasoning and include a concrete example...'}
+                className="mt-3 min-h-64 w-full resize-y rounded-lg border border-border bg-background/40 p-4 text-sm font-semibold normal-case leading-7 text-foreground outline-none focus:border-border disabled:opacity-50"
+              />
+            </label>
+            {inputMode === 'voice' && answer && (
+              <button
+                type="button"
+                onClick={() => {
+                  setVoiceConfirmed(true);
+                  setTimerActive(false);
+                }}
+                className="mt-3 rounded-md border border-border px-4 py-2 text-xs font-black text-foreground"
+              >
+                Confirm voice transcript
+              </button>
+            )}
+            {inputMode === 'voice' && voiceConfirmed && (
+              <p className="mt-2 text-xs font-bold text-teal-300">Voice transcript confirmed.</p>
+            )}
+            {error && <p className="mt-4 rounded-md border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</p>}
+            <div className="mt-5 flex flex-wrap justify-end gap-3">
+              <button type="button" onClick={() => { setAnswer(''); setFeedback(null); setDurationSeconds(0); setTimerActive(false); setVoiceConfirmed(false); clientRequestIdRef.current = null; }} className="inline-flex items-center gap-2 rounded-md border border-border px-5 py-3 text-sm font-black text-foreground">
+                <RefreshCcw className="size-4" /> Reset
+              </button>
+              <button type="button" onClick={submitAnswer} disabled={submitting || !scenario || !answer.trim() || (inputMode === 'voice' && !voiceConfirmed)} className="inline-flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-sm font-black text-primary-foreground disabled:opacity-50">
+                <Send className="size-4" /> {submitting ? 'Evaluating...' : 'Evaluate Answer'}
+              </button>
+            </div>
+          </article>
+
+          <aside className="space-y-4">
+            {feedback ? (
+              <>
+                <ScoreCard label="Overall Score" value={feedback.overallScore} />
+                <ScoreCard label="Technical Score" value={feedback.technicalScore} accent />
+                <ScoreCard label="Communication Score" value={feedback.communicationScore} accent />
+              </>
+            ) : (
+              <div className="rounded-lg border border-border bg-card p-5 text-sm leading-6 text-muted-foreground">
+                Scores will appear after you submit an answer.
+              </div>
+            )}
+          </aside>
+        </section>
+
+        {feedback && (
+          <section className="space-y-6">
+            <article className="rounded-lg border border-border bg-muted p-6">
+              <h2 className="text-sm font-black uppercase text-foreground">Evaluation Summary</h2>
+              <p className="mt-3 text-sm leading-7 text-foreground">{feedback.summary}</p>
+            </article>
+            <div className="grid gap-5 lg:grid-cols-2">
+              <article className="rounded-lg border border-teal-500/25 bg-teal-500/5 p-6"><h3 className="font-black text-teal-300">Strengths</h3><ul className="mt-3 space-y-2 text-sm text-muted-foreground">{feedback.strengths.map((item) => <li key={item}>• {item}</li>)}</ul></article>
+              <article className="rounded-lg border border-orange-500/25 bg-orange-500/5 p-6"><h3 className="font-black text-orange-300">Improvements</h3><ul className="mt-3 space-y-2 text-sm text-muted-foreground">{feedback.improvements.map((item) => <li key={item}>• {item}</li>)}</ul></article>
+            </div>
+            <div className="grid gap-5 lg:grid-cols-2">
+              <article className="rounded-lg border border-border bg-card p-6"><h3 className="font-black text-foreground">Recommended Phrasing</h3><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-muted-foreground">{feedback.recommendedPhrasing}</p></article>
+              <article className="rounded-lg border border-border bg-card p-6"><h3 className="font-black text-foreground">Improved Answer</h3><p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-foreground">{feedback.improvedAnswer}</p></article>
+            </div>
+            <div className="flex flex-col justify-center gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => prepareRetry(feedback.improvedAnswer, 'written')}
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-border px-5 py-3 text-sm font-black text-foreground"
+              >
+                <Sparkles className="size-4" /> Use improved answer
+              </button>
+              <button
+                type="button"
+                onClick={() => prepareRetry(answer)}
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-border px-5 py-3 text-sm font-black text-foreground"
+              >
+                <RefreshCcw className="size-4" /> Edit and try again
+              </button>
+            </div>
+            <div className="grid gap-4 md:grid-cols-5">
+              <ScoreCard label="Accuracy" value={feedback.categoryScores.technicalAccuracy} />
+              <ScoreCard label="Depth" value={feedback.categoryScores.depth} />
+              <ScoreCard label="Clarity" value={feedback.categoryScores.clarity} />
+              <ScoreCard label="Communication" value={feedback.categoryScores.communication} />
+              <ScoreCard label="Terminology" value={feedback.categoryScores.terminology} />
+            </div>
+          </section>
+        )}
+
+        <section className="rounded-lg border border-border bg-card p-6">
+          <h2 className="flex items-center gap-2 text-lg font-black text-foreground">
+            <History className="size-5 text-foreground" /> Previous Interviews
+          </h2>
+          {attemptsLoading ? (
+            <p className="mt-4 text-sm text-muted-foreground">Loading interview attempts...</p>
+          ) : attempts.length === 0 ? (
+            <p className="mt-4 text-sm text-muted-foreground">
+              No interview attempts yet. Answer your first scenario to begin tracking progress.
+            </p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {attempts.map((attempt) => (
+                <details key={attempt.id} className="rounded-md border border-border bg-background/30 p-4">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold">
+                    <span>{attempt.scenario?.question ?? 'Interview scenario'} · {new Date(attempt.createdAt).toLocaleString()}</span>
+                    <span className={attempt.status === 'completed' ? 'text-teal-300' : attempt.status === 'failed' ? 'text-red-300' : 'text-orange-300'}>
+                      {attempt.evaluation ? `${Math.round(attempt.evaluation.overallScore)}/100` : attempt.status}
+                    </span>
+                  </summary>
+                  <div className="mt-4 space-y-3 border-t border-border pt-4 text-sm text-muted-foreground">
+                    <p className="whitespace-pre-wrap text-muted-foreground">{attempt.answer.content}</p>
+                    {attempt.evaluation && <p>{attempt.evaluation.summary}</p>}
+                    {attempt.status === 'failed' && !attempt.evaluation && (
+                      <p className="text-red-300">This evaluation failed. Load the answer and submit it as a new attempt.</p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => loadAttempt(attempt)}
+                      disabled={!attempt.scenario}
+                      className="rounded-md border border-border px-4 py-2 text-xs font-black text-foreground hover:border-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Load into interview
+                    </button>
+                  </div>
+                </details>
+              ))}
+            </div>
+          )}
+        </section>
+    </div>
   );
 }

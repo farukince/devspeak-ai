@@ -1,113 +1,187 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAiResponse } from '@/lib/aiClient';
+import { evaluateStructured } from '@/lib/aiClient';
+import { buildCodeReviewPrompt, CODE_REVIEW_PROMPT_VERSION } from '@/lib/ai/prompts/codeReview';
+import { EVALUATOR_SYSTEM_INSTRUCTION } from '@/lib/ai/prompts/shared';
+import { aiRouteError } from '@/lib/ai/route';
+import { authorResponseSchema, reviewerResponseSchema } from '@/lib/ai/schemas';
+import { getServerDatabase } from '@/lib/database/server';
+import type { EvaluationRecord, PracticeSessionRecord } from '@/lib/database/types';
+import { enforceRateLimit, readJsonWithLimit } from '@/lib/security/api';
+import { codeReviewAnswerSchema, codeReviewRequestSchema } from '@/lib/validation/codeReview';
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { role, userReview, codeToReview } = body;
+const CODE_REVIEW_SCHEMA_VERSION = '2';
+const ATTEMPT_LIMIT = 10;
 
-    if (!role || !codeToReview) {
-      return NextResponse.json({ error: 'Role and code are required.' }, { status: 400 });
-    }
+function average(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
 
-    let prompt = '';
+function toCodeReviewEvaluation(evaluation: EvaluationRecord | null) {
+  if (!evaluation) return null;
+  const common = {
+    summary: evaluation.summary,
+    strengths: evaluation.strengths,
+    improvements: evaluation.improvements,
+    improvedAnswer: evaluation.improvedAnswer,
+    suggestions: evaluation.details.suggestions,
+  };
+  return evaluation.details.role === 'reviewer'
+    ? reviewerResponseSchema.safeParse({
+        ...common,
+        constructiveness: evaluation.categoryScores.constructiveness,
+        specificity: evaluation.categoryScores.specificity,
+        tone: evaluation.categoryScores.tone,
+      })
+    : authorResponseSchema.safeParse({
+        ...common,
+        correctness: evaluation.categoryScores.correctness,
+        readability: evaluation.categoryScores.readability,
+        bestPractices: evaluation.categoryScores.bestPractices,
+      });
+}
 
-    switch (role) {
-      case 'reviewer':
-        if (!userReview) {
-          return NextResponse.json({ error: 'User review is required for the reviewer role.' }, { status: 400 });
-        }
-        prompt = `
-          You are a Staff Software Engineer evaluating a junior developer's code review skills.
-          The code they reviewed is:
-          \`\`\`javascript
-          ${codeToReview}
-          \`\`\`
-          Their review is: "${userReview}"
-
-          Evaluate their review clearly and constructively.
-          
-          **Output Format:**
-          Your response MUST be a valid JSON object with the following structure:
-          {
-            "constructiveness": number (0-100),
-            "specificity": number (0-100),
-            "tone": number (0-100),
-            "feedback": string (concise summary),
-            "suggestions": [
-              {
-                "title": string (short title),
-                "description": string (detailed advice),
-                "type": "tip" | "warning" | "refactor",
-                "icon": "lightbulb" | "warning" | "auto_fix_high"
-              }
-            ]
-          }
-          Provide exactly 3 items in the "suggestions" array.
-        `;
-        break;
-
-      case 'author':
-        prompt = `
-          You are a Senior Software Engineer reviewing code written by a developer.
-          The code they wrote is:
-          \`\`\`javascript
-          ${codeToReview}
-          \`\`\`
-
-          Evaluate their code quality.
-
-          **Output Format:**
-          Your response MUST be a valid JSON object with the following structure:
-          {
-            "correctness": number (0-100),
-            "readability": number (0-100),
-            "bestPractices": number (0-100),
-            "feedback": string (concise summary),
-            "suggestions": [
-              {
-                "title": string (short title),
-                "description": string (detailed advice),
-                "type": "tip" | "warning" | "refactor",
-                "icon": "lightbulb" | "warning" | "auto_fix_high"
-              }
-            ]
-          }
-          Provide exactly 3 items in the "suggestions" array.
-        `;
-        break;
-
-      default:
-        return NextResponse.json({ error: 'Invalid role selected.' }, { status: 400 });
-    }
-
-    const rawResponse = await getAiResponse(prompt, 'deep');
-    let evaluation;
-
+async function attemptResponse(
+  database: Awaited<ReturnType<typeof getServerDatabase>>,
+  session: PracticeSessionRecord
+) {
+  const answer = (() => {
     try {
-      const cleanedResponse = rawResponse.replace(/```json/g, '').replace(/```/g, '').trim();
-      evaluation = JSON.parse(cleanedResponse);
-    } catch (e) {
-      console.error("Failed to parse AI JSON response:", rawResponse);
-      return NextResponse.json({ error: "AI failed to return a valid JSON format." }, { status: 500 });
+      const parsed = codeReviewAnswerSchema.safeParse(JSON.parse(session.userAnswer));
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
     }
+  })();
+  const parsedEvaluation = toCodeReviewEvaluation(await database.evaluations.readBySession(session.id));
+  return {
+    id: session.id,
+    createdAt: session.createdAt,
+    status: session.status,
+    answer,
+    evaluation: parsedEvaluation?.success ? parsedEvaluation.data : null,
+  };
+}
 
-    const requiredKeys = role === 'reviewer'
-      ? ['constructiveness', 'specificity', 'tone']
-      : ['correctness', 'readability', 'bestPractices'];
-
-    for (const key of requiredKeys) {
-      if (typeof evaluation[key] !== 'number') {
-        console.error(`Invalid or missing key '${key}' in AI response:`, evaluation);
-        return NextResponse.json({ error: `AI response was missing or had an invalid type for '${key}'.` }, { status: 500 });
-      }
-      evaluation[key] = Math.max(0, Math.min(100, evaluation[key]));
-    }
-
-    return NextResponse.json(evaluation);
-
+export async function GET() {
+  try {
+    const database = await getServerDatabase();
+    const sessions = await database.sessions.list({ moduleType: 'code_review', limit: ATTEMPT_LIMIT });
+    const attempts = await Promise.all(sessions.map((session) => attemptResponse(database, session)));
+    return NextResponse.json({ attempts });
   } catch (error) {
-    console.error('Error in /api/code-review:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return aiRouteError(error);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  let database: Awaited<ReturnType<typeof getServerDatabase>> | null = null;
+  let sessionId: string | null = null;
+
+  try {
+    database = await getServerDatabase();
+    await enforceRateLimit(database.client, 'code-review:evaluate', 10);
+    const input = await readJsonWithLimit(request, codeReviewRequestSchema, 56_000);
+    const answer = input.role === 'reviewer'
+      ? { role: input.role, userReview: input.userReview, codeToReview: input.codeToReview }
+      : { role: input.role, codeToReview: input.codeToReview };
+    const session = await database.sessions.create({
+      moduleType: 'code_review',
+      clientRequestId: input.clientRequestId,
+      inputMode: 'written',
+      userAnswer: JSON.stringify(answer),
+      durationSeconds: input.durationSeconds,
+      status: 'processing',
+    });
+    sessionId = session.id;
+
+    const stored = toCodeReviewEvaluation(await database.evaluations.readBySession(session.id));
+    if (stored?.success) {
+      if (session.status !== 'completed') {
+        await database.sessions.update(session.id, {
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          durationSeconds: input.durationSeconds,
+        });
+      }
+      return NextResponse.json({ sessionId: session.id, evaluation: stored.data });
+    }
+
+    await database.sessions.update(session.id, {
+      status: 'processing',
+      userAnswer: JSON.stringify(answer),
+      completedAt: null,
+      durationSeconds: input.durationSeconds,
+    });
+    const profile = await database.profiles.read();
+    const profileContext = {
+      jobTitle: profile?.jobTitle ?? null,
+      englishLevel: profile?.englishLevel ?? null,
+    };
+    const result = input.role === 'reviewer'
+      ? await evaluateStructured({
+          prompt: buildCodeReviewPrompt({
+            role: input.role,
+            code: input.codeToReview,
+            review: input.userReview,
+            profile: profileContext,
+          }),
+          schema: reviewerResponseSchema,
+          mode: 'deep',
+          promptVersion: CODE_REVIEW_PROMPT_VERSION,
+          systemInstruction: EVALUATOR_SYSTEM_INSTRUCTION,
+          sessionId: session.id,
+        })
+      : await evaluateStructured({
+          prompt: buildCodeReviewPrompt({
+            role: input.role,
+            code: input.codeToReview,
+            profile: profileContext,
+          }),
+          schema: authorResponseSchema,
+          mode: 'deep',
+          promptVersion: CODE_REVIEW_PROMPT_VERSION,
+          systemInstruction: EVALUATOR_SYSTEM_INSTRUCTION,
+          sessionId: session.id,
+        });
+    const categoryScores: Record<string, number> = 'constructiveness' in result.data
+      ? {
+          constructiveness: result.data.constructiveness,
+          specificity: result.data.specificity,
+          tone: result.data.tone,
+        }
+      : {
+          correctness: result.data.correctness,
+          readability: result.data.readability,
+          bestPractices: result.data.bestPractices,
+        };
+
+    await database.evaluations.create({
+      sessionId: session.id,
+      overallScore: average(Object.values(categoryScores)),
+      categoryScores,
+      summary: result.data.summary,
+      strengths: result.data.strengths,
+      improvements: result.data.improvements,
+      improvedAnswer: result.data.improvedAnswer,
+      promptVersion: CODE_REVIEW_PROMPT_VERSION,
+      schemaVersion: CODE_REVIEW_SCHEMA_VERSION,
+      modelName: result.model,
+      details: { role: input.role, suggestions: result.data.suggestions },
+    });
+    await database.sessions.update(session.id, {
+      status: 'completed',
+      completedAt: new Date().toISOString(),
+      durationSeconds: input.durationSeconds,
+    });
+    return NextResponse.json({ sessionId: session.id, evaluation: result.data }, { status: 201 });
+  } catch (error) {
+    if (database && sessionId) {
+      try {
+        await database.sessions.update(sessionId, { status: 'failed' });
+      } catch (updateError) {
+        console.error('Failed to mark code review session as failed:', updateError);
+      }
+    }
+    return aiRouteError(error);
   }
 }

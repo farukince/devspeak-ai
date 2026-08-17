@@ -1,19 +1,27 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getUserPracticeSessions } from '@/lib/dataClient';
+import { NextResponse } from 'next/server';
+import { getServerDatabase } from '@/lib/database/server';
 import { startOfDay } from 'date-fns';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    // Get userId from query params
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get('userId');
-
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized - userId required' }, { status: 401 });
-    }
-
-    // 2. Get all practice sessions from data provider
-    const sessions = await getUserPracticeSessions(userId);
+    const database = await getServerDatabase();
+    const sessionRows = await database.sessions.list();
+    const sessions = (await Promise.all(sessionRows.map(async (session) => {
+      const evaluation = await database.evaluations.readBySession(session.id);
+      const scores: Record<string, number> | undefined = evaluation
+        ? { overall: evaluation.overallScore, ...evaluation.categoryScores }
+        : undefined;
+      return {
+        userId: session.userId,
+        sessionId: session.id,
+        createdAt: session.createdAt,
+        moduleType: session.moduleType,
+        taskName: session.moduleType,
+        scores,
+        userInput: session.userAnswer,
+        aiFeedback: evaluation?.summary ?? '',
+      };
+    }))).reverse();
 
     if (!sessions || sessions.length === 0) {
       return NextResponse.json({ message: 'No practice sessions found.' });
@@ -44,8 +52,8 @@ export async function GET(request: NextRequest) {
     }, {});
 
     // 6. Calculate score trends (for line chart)
-    const scoreTrends: { [key: string]: any }[] = [];
-    const sessionsByDay = sessions.reduce((acc: { [key: string]: any[] }, session) => {
+    const scoreTrends: Record<string, string | number>[] = [];
+    const sessionsByDay = sessions.reduce<Record<string, typeof sessions>>((acc, session) => {
       const day = startOfDay(new Date(session.createdAt)).toISOString();
       if (!acc[day]) acc[day] = [];
       acc[day].push(session);
@@ -58,15 +66,16 @@ export async function GET(request: NextRequest) {
       const counts: { [key: string]: number } = {};
 
       daySessions.forEach(session => {
-        if (session.scores) {
-          Object.keys(session.scores).forEach(key => {
-            dailyAverages[key] = (dailyAverages[key] || 0) + session.scores[key];
+        const scores = session.scores;
+        if (scores) {
+          Object.keys(scores).forEach(key => {
+            dailyAverages[key] = (dailyAverages[key] || 0) + scores[key];
             counts[key] = (counts[key] || 0) + 1;
           });
         }
       });
 
-      const trendPoint: { [key: string]: any } = { date: new Date(day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
+      const trendPoint: Record<string, string | number> = { date: new Date(day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) };
       Object.keys(dailyAverages).forEach(key => {
         trendPoint[key] = Math.round(dailyAverages[key] / counts[key]);
       });
@@ -149,6 +158,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(dashboardData);
 
   } catch (error) {
+    if (error instanceof Error && error.message === 'Authentication required.') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     console.error('Error fetching progress data:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }

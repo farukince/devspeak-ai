@@ -1,46 +1,29 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import {
-  BarChart3,
-  Bell,
-  BookOpen,
   Calendar,
-  ChevronRight,
-  Code2,
-  Grid2X2,
+  History,
   Info,
-  LogOut,
-  MessageSquare,
-  Mic,
-  PenTool,
   RefreshCcw,
-  Search,
   Send,
-  Settings,
   Sparkles,
   Timer,
-  Users,
-} from 'lucide-react';
+  Volume2,
+  VolumeX } from 'lucide-react';
+import { VoiceRecorder } from '@/components/VoiceRecorder';
 import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
+import type { StandupEvaluation } from '@/lib/ai/schemas';
+import type { StandupAnswer } from '@/lib/validation/standup';
 
-interface StandupFeedback {
-  clarity: number;
-  conciseness: number;
-  impact: number;
-  feedback: string;
+interface StandupAttempt {
+  id: string;
+  createdAt: string;
+  status: 'draft' | 'processing' | 'completed' | 'failed';
+  answer: StandupAnswer | null;
+  evaluation: StandupEvaluation | null;
 }
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: Grid2X2 },
-  { href: '/modules/interview', label: 'Interview', icon: BookOpen },
-  { href: '/modules/standup', label: 'Stand-up', icon: MessageSquare },
-  { href: '/modules/code-review', label: 'Code Review', icon: Code2 },
-  { href: '/modules/writing', label: 'Writing', icon: PenTool },
-  { href: '/modules/pair-programming', label: 'Pair Programming', icon: Users },
-  { href: '/modules/progress', label: 'Progress', icon: BarChart3 },
-];
 
 const standupFields = [
   {
@@ -75,23 +58,41 @@ function wordCount(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function scoreLabel(feedback: StandupFeedback | null) {
+function scoreLabel(feedback: StandupEvaluation | null) {
   if (!feedback) return 'Ready';
-  const average = (feedback.clarity + feedback.conciseness + feedback.impact) / 3;
-  if (average >= 85) return 'Excellent';
-  if (average >= 70) return 'Solid';
+  if (feedback.overallScore >= 85) return 'Excellent';
+  if (feedback.overallScore >= 70) return 'Solid';
   return 'Needs Focus';
+}
+
+function standupFieldsFromTranscript(transcript: string) {
+  const match = transcript.match(/yesterday[,:]?\s*([\s\S]*?)\s+today[,:]?\s*([\s\S]*?)(?:\s+blockers?[,:]?\s*([\s\S]*))?$/i);
+  if (!match) return { yesterday: '', today: transcript.trim(), blockers: '' };
+  return { yesterday: match[1].trim(), today: match[2].trim(), blockers: match[3]?.trim() ?? '' };
+}
+
+async function fetchStandupAttempts() {
+  const response = await fetch('/api/standup', { cache: 'no-store' });
+  if (!response.ok) throw new Error('Previous attempts could not be loaded.');
+  return (await response.json() as { attempts: StandupAttempt[] }).attempts;
 }
 
 export default function StandupModule() {
   const [yesterday, setYesterday] = useState('');
   const [today, setToday] = useState('');
   const [blockers, setBlockers] = useState('');
-  const [feedback, setFeedback] = useState<StandupFeedback | null>(null);
+  const [feedback, setFeedback] = useState<StandupEvaluation | null>(null);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceConfirmed, setVoiceConfirmed] = useState(false);
+  const [voiceDurationSeconds, setVoiceDurationSeconds] = useState<number | null>(null);
+  const [attempts, setAttempts] = useState<StandupAttempt[]>([]);
+  const [attemptsLoading, setAttemptsLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [autoReadEnabled, setAutoReadEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const feedbackRef = useRef<HTMLDivElement>(null);
+  const fieldsRef = useRef<HTMLElement>(null);
+  const clientRequestIdRef = useRef<string | null>(null);
 
   const {
     supported: ttsSupported,
@@ -118,6 +119,21 @@ export default function StandupModule() {
     };
   }, [ttsSupported, stop]);
 
+  useEffect(() => {
+    let active = true;
+    fetchStandupAttempts()
+      .then((items) => {
+        if (active) setAttempts(items);
+      })
+      .catch((attemptError) => console.warn(attemptError))
+      .finally(() => {
+        if (active) setAttemptsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const values: Record<StandupKey, string> = useMemo(() => ({ yesterday, today, blockers }), [yesterday, today, blockers]);
   const setters: Record<StandupKey, (value: string) => void> = {
     yesterday: setYesterday,
@@ -125,6 +141,23 @@ export default function StandupModule() {
     blockers: setBlockers,
   };
   const totalWords = wordCount(yesterday) + wordCount(today) + wordCount(blockers);
+  const hasDraft = Boolean(yesterday.trim() || today.trim() || blockers.trim());
+  const inputMode: 'written' | 'voice' = voiceConfirmed ? 'voice' : 'written';
+  const completedAttempts = attempts.filter((attempt) => attempt.status === 'completed').length;
+
+  const loadAnswerIntoForm = (answer: StandupAnswer) => {
+    setYesterday(answer.yesterday);
+    setToday(answer.today);
+    setBlockers(answer.blockers);
+    setFeedback(null);
+    setVoiceTranscript('');
+    setVoiceConfirmed(false);
+    setVoiceDurationSeconds(null);
+    setError(null);
+    clientRequestIdRef.current = null;
+    stop();
+    setTimeout(() => fieldsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
 
   const handleFeedback = async () => {
     if (!yesterday.trim() && !today.trim() && !blockers.trim()) return;
@@ -134,44 +167,41 @@ export default function StandupModule() {
     setError(null);
 
     try {
+      const clientRequestId = clientRequestIdRef.current ?? crypto.randomUUID();
+      clientRequestIdRef.current = clientRequestId;
       const response = await fetch('/api/standup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          yesterday: yesterday || 'Not provided',
-          today: today || 'Not provided',
-          blockers: blockers || 'None',
+          clientRequestId,
+          yesterday,
+          today,
+          blockers,
+          inputMode,
+          transcript: inputMode === 'voice' ? (voiceTranscript || null) : null,
+          durationSeconds: voiceDurationSeconds,
         }),
       });
 
-      if (!response.ok) throw new Error('API request failed');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'API request failed');
 
-      const result: StandupFeedback = await response.json();
+      const result = (payload as { evaluation: StandupEvaluation }).evaluation;
       setFeedback(result);
+      clientRequestIdRef.current = null;
 
-      if (ttsSupported && autoReadEnabled && result.feedback) {
-        speak(result.feedback);
+      if (ttsSupported && autoReadEnabled && result.summary) {
+        speak(result.summary);
       }
 
-      await fetch('/api/log-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: 'anonymous',
-          moduleType: 'standup',
-          taskName: 'Daily Stand-up',
-          scores: { clarity: result.clarity, conciseness: result.conciseness, impact: result.impact },
-          userInput: { yesterday, today, blockers },
-          aiFeedback: result.feedback,
-        }),
-      }).catch(console.warn);
+      fetchStandupAttempts().then(setAttempts).catch((attemptError) => console.warn(attemptError));
 
       setTimeout(() => {
         feedbackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
     } catch (requestError) {
       console.error('Error getting AI feedback:', requestError);
-      setError('AI provider is not ready yet. Your stand-up draft is safe here.');
+      setError(requestError instanceof Error ? requestError.message : 'Evaluation failed. Your stand-up draft is safe here.');
     } finally {
       setLoading(false);
     }
@@ -182,126 +212,113 @@ export default function StandupModule() {
     setToday('');
     setBlockers('');
     setFeedback(null);
+    setVoiceTranscript('');
+    setVoiceConfirmed(false);
+    setVoiceDurationSeconds(null);
     setError(null);
+    clientRequestIdRef.current = null;
     stop();
   };
 
   return (
-    <main className="min-h-screen bg-black text-zinc-100 font-mono">
-      <div className="flex min-h-screen border border-zinc-800 bg-black">
-        <aside className="hidden lg:flex w-72 shrink-0 flex-col border-r border-zinc-800 bg-[#18191b]">
-          <div className="flex h-24 items-center px-10">
-            <Link href="/dashboard" className="flex items-center gap-3">
-              <span className="flex size-9 items-center justify-center rounded-lg bg-violet-400 text-black">
-                <Sparkles className="size-5" />
-              </span>
-              <span className="text-xl font-black tracking-tight text-violet-300">DevSpeak AI</span>
-            </Link>
-          </div>
+    <div className="space-y-6">
 
-          <nav className="flex flex-1 flex-col gap-2 px-5 py-2">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const active = item.href === '/modules/standup';
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold transition-colors ${
-                    active ? 'bg-violet-500/15 text-violet-300' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
-                  }`}
-                >
-                  <Icon className="size-4" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="border-t border-zinc-800 px-5 py-6">
-            <Link href="/settings" className="flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100">
-              <Settings className="size-4" />
-              Settings
-            </Link>
-            <Link href="/" className="mt-2 flex items-center gap-3 rounded-md px-4 py-3 text-sm font-bold text-red-400 hover:bg-red-500/10">
-              <LogOut className="size-4" />
-              Logout
-            </Link>
-          </div>
-        </aside>
-
-        <section className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-16 items-center justify-between border-b border-zinc-800 px-5 lg:px-10">
-            <div className="flex h-10 w-full max-w-md items-center gap-3 rounded-md bg-zinc-900 px-4 text-sm text-zinc-400 ring-1 ring-zinc-800">
-              <Search className="size-4" />
-              <span className="truncate">Search simulations, docs...</span>
-              <kbd className="ml-auto hidden rounded border border-zinc-700 px-2 py-0.5 text-xs text-zinc-300 sm:inline">⌘ K</kbd>
-            </div>
-
-            <div className="flex items-center gap-5">
-              <button type="button" className="relative rounded-md p-2 text-zinc-300 hover:bg-zinc-900">
-                <Bell className="size-5" />
-                <span className="absolute right-2 top-2 size-1.5 rounded-full bg-violet-400" />
-              </button>
-              <div className="hidden h-7 w-px bg-zinc-800 sm:block" />
-              <div className="hidden items-center gap-3 text-right sm:flex">
-                <div>
-                  <p className="text-sm font-black text-white">Alex Dev</p>
-                  <p className="text-[10px] uppercase tracking-wide text-zinc-400">Lvl 24 Senior Eng</p>
-                </div>
-                <div className="relative flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-300 to-teal-300 text-lg">
-                  🧑🏻‍💻
-                  <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-black bg-emerald-400" />
-                </div>
-              </div>
-            </div>
-          </header>
-
-          <div className="border-b border-zinc-800 px-5 py-7 lg:px-10">
+          <div className="space-y-2 border-b border-border pb-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h1 className="text-3xl font-black tracking-tight text-white">Daily Stand-up Simulation</h1>
-                <p className="mt-2 text-sm text-zinc-400">
-                  <span className="rounded-full bg-zinc-800 px-3 py-1 text-xs font-black text-white">Session #482</span>
-                  <span className="ml-2">Project: CloudScale Infrastructure • Sprint 42</span>
+                <h1 className="text-3xl font-black tracking-tight text-foreground">Daily Stand-up Simulation</h1>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Practice Yesterday / Today / Blockers. Write your update or use optional voice input below, then submit for AI feedback.
                 </p>
               </div>
-              <div className="flex items-center gap-4">
-                <div className="text-right">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-zinc-400">Elapsed Time</p>
-                  <p className="text-xl font-black text-violet-300">01:45</p>
-                </div>
-                <button type="button" className="rounded-lg border border-zinc-700 p-3 text-zinc-200 hover:border-violet-400">
-                  <Info className="size-5" />
-                </button>
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                <span className="rounded-full bg-muted px-3 py-1 text-xs font-black uppercase tracking-wide text-foreground">
+                  Mode: {inputMode}
+                </span>
+                <span className="rounded-full bg-muted px-3 py-1 text-xs font-black text-foreground">
+                  {totalWords} words
+                </span>
+                <span className="rounded-full bg-muted px-3 py-1 text-xs font-black text-foreground">
+                  {attemptsLoading ? '…' : `${completedAttempts} completed`}
+                </span>
               </div>
             </div>
           </div>
 
-          <div className="flex-1 px-5 py-8 lg:px-10">
-            <section className="grid gap-6 xl:grid-cols-3">
+          <div className="space-y-6">
+            <section className="mb-8 rounded-lg border border-border bg-muted/30 p-5">
+              <h2 className="text-sm font-black uppercase tracking-widest text-muted-foreground">Optional voice input</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Record, then confirm the transcript to fill the fields below. Say “Yesterday… Today… Blockers…” for automatic separation.
+              </p>
+              <div className="mt-4">
+                <VoiceRecorder
+                  moduleType="standup"
+                  maxDurationSeconds={120}
+                  onTranscript={(result) => {
+                    setVoiceTranscript(result.transcript);
+                    setVoiceDurationSeconds(result.durationSeconds);
+                    setVoiceConfirmed(false);
+                    clientRequestIdRef.current = result.clientRequestId;
+                    setError(null);
+                  }}
+                />
+              </div>
+              {voiceTranscript && (
+                <div className="mt-4">
+                  <label className="text-xs font-black uppercase text-muted-foreground">Editable Transcript
+                    <textarea
+                      value={voiceTranscript}
+                      onChange={(event) => {
+                        setVoiceTranscript(event.target.value);
+                        setVoiceConfirmed(false);
+                      }}
+                      className="mt-2 min-h-28 w-full rounded-md border border-border bg-background/40 p-3 text-sm normal-case leading-6 text-foreground"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const fields = standupFieldsFromTranscript(voiceTranscript);
+                      setYesterday(fields.yesterday);
+                      setToday(fields.today);
+                      setBlockers(fields.blockers);
+                      setVoiceConfirmed(true);
+                    }}
+                    className="mt-3 rounded-md border border-border px-4 py-2 text-sm font-black text-foreground"
+                  >
+                    Confirm Transcript & Fill Fields
+                  </button>
+                  {voiceConfirmed && (
+                    <p className="mt-2 text-xs font-bold text-teal-300">
+                      Voice input confirmed — mode is voice for the next submit.
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
+            <section ref={fieldsRef} className="grid gap-6 scroll-mt-6 xl:grid-cols-3">
               {standupFields.map((field) => {
                 const Icon = field.icon;
                 const value = values[field.key];
 
                 return (
-                  <article key={field.key} className="flex min-h-[360px] flex-col rounded-lg border border-zinc-800 bg-[#18191b] p-6">
-                    <div className={`mb-4 flex size-10 items-center justify-center rounded-md ${field.tone === 'red' ? 'bg-red-500/10 text-red-400' : 'bg-violet-500/15 text-violet-300'}`}>
+                  <article key={field.key} className="flex min-h-[360px] flex-col rounded-lg border border-border bg-card p-6">
+                    <div className={`mb-4 flex size-10 items-center justify-center rounded-md ${field.tone === 'red' ? 'bg-red-500/10 text-red-400' : 'bg-muted text-foreground'}`}>
                       <Icon className="size-5" />
                     </div>
-                    <h2 className="text-xl font-black text-white">{field.title}</h2>
-                    <p className="mt-2 min-h-10 text-sm font-bold text-zinc-400">{field.prompt}</p>
+                    <h2 className="text-xl font-black text-foreground">{field.title}</h2>
+                    <p className="mt-2 min-h-10 text-sm font-bold text-muted-foreground">{field.prompt}</p>
                     <textarea
                       value={value}
                       onChange={(event) => {
                         setters[field.key](event.target.value);
                         setError(null);
                       }}
-                      className="mt-4 flex-1 resize-none rounded-lg border border-zinc-900 bg-zinc-900/35 p-4 text-base font-bold leading-7 text-zinc-100 outline-none placeholder:text-zinc-200/80 focus:border-violet-400"
+                      className="mt-4 flex-1 resize-none rounded-lg border border-zinc-900 bg-muted/35 p-4 text-base font-bold leading-7 text-foreground outline-none placeholder:text-foreground/80 focus:border-border"
                       placeholder={field.placeholder}
                     />
-                    <div className="mt-4 flex justify-between text-xs font-bold text-zinc-400">
+                    <div className="mt-4 flex justify-between text-xs font-bold text-muted-foreground">
                       <span>{wordCount(value)} words</span>
                       <span>Target: 15-30 words</span>
                     </div>
@@ -310,111 +327,222 @@ export default function StandupModule() {
               })}
             </section>
 
-            <section className="mt-8 border-t border-zinc-800 pt-12" ref={feedbackRef}>
+            <section className="mt-8 border-t border-border pt-12" ref={feedbackRef}>
               <div className="mx-auto flex max-w-5xl flex-col items-center gap-8">
                 <div className="text-center">
-                  <div className="mx-auto mb-3 h-1 w-28 rounded-full bg-violet-400/40" />
-                  <p className="text-sm font-bold text-zinc-400">Click the microphone to start speaking</p>
+                  <div className="mx-auto mb-3 h-1 w-28 rounded-full bg-primary/40" />
+                  <p className="text-sm font-bold text-muted-foreground">
+                    Fill Yesterday / Today / Blockers above, then submit for evaluation.
+                  </p>
                 </div>
 
-                <div className="grid w-full items-center gap-5 md:grid-cols-3">
+                <div className="flex w-full flex-col items-center justify-center gap-4 sm:flex-row sm:flex-wrap">
                   <button
                     type="button"
                     onClick={handleClear}
-                    className="justify-self-center rounded-lg border border-zinc-700 px-6 py-3 text-sm font-black text-white hover:border-violet-400"
+                    className="rounded-lg border border-border px-6 py-3 text-sm font-black text-foreground hover:border-foreground"
                   >
                     <RefreshCcw className="mr-2 inline size-4" />
                     Reset All
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setAutoReadEnabled((value) => !value)}
-                    className={`mx-auto flex size-20 items-center justify-center rounded-full shadow-2xl shadow-violet-500/30 transition ${
-                      autoReadEnabled ? 'bg-violet-400 text-black' : 'bg-zinc-800 text-zinc-300'
-                    }`}
-                    title={autoReadEnabled ? 'Auto read enabled' : 'Auto read disabled'}
-                  >
-                    <Mic className="size-7" />
-                  </button>
-
-                  <div className="flex flex-col gap-3 justify-self-center sm:flex-row">
-                    {ttsSupported && feedback && (
-                      <button
-                        type="button"
-                        onClick={() => (speaking ? pause() : paused ? resume() : speak(feedback.feedback))}
-                        className="rounded-lg border border-zinc-700 px-5 py-3 text-sm font-black text-zinc-200 hover:border-violet-400"
-                      >
-                        {speaking && !paused ? 'Pause Audio' : 'Listen'}
-                      </button>
-                    )}
+                  {ttsSupported && (
                     <button
                       type="button"
-                      onClick={handleFeedback}
-                      disabled={loading || (!yesterday.trim() && !today.trim() && !blockers.trim())}
-                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-teal-400 px-6 py-3 text-sm font-black text-black transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => setAutoReadEnabled((value) => !value)}
+                      className={`inline-flex items-center gap-2 rounded-lg border px-5 py-3 text-sm font-black transition ${
+                        autoReadEnabled
+                          ? 'border-border bg-muted text-foreground'
+                          : 'border-border text-muted-foreground hover:border-zinc-500'
+                      }`}
+                      title={autoReadEnabled ? 'Auto-read enabled' : 'Auto-read disabled'}
                     >
-                      {loading ? 'Analyzing...' : 'Submit Stand-up'}
-                      <Send className="size-4" />
+                      {autoReadEnabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+                      Auto-read feedback
                     </button>
-                  </div>
+                  )}
+
+                  {ttsSupported && feedback && (
+                    <button
+                      type="button"
+                      onClick={() => (speaking ? pause() : paused ? resume() : speak(feedback.summary))}
+                      className="rounded-lg border border-border px-5 py-3 text-sm font-black text-foreground hover:border-foreground"
+                    >
+                      {speaking && !paused ? 'Pause Audio' : 'Listen to feedback'}
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleFeedback}
+                    disabled={loading || !hasDraft}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-teal-400 px-6 py-3 text-sm font-black text-primary-foreground transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {loading ? 'Analyzing...' : 'Submit Stand-up'}
+                    <Send className="size-4" />
+                  </button>
                 </div>
 
-                <div className="w-full rounded-lg border border-violet-500/30 bg-violet-500/5 p-5">
-                  <p className="mb-3 flex items-center gap-2 text-sm font-black text-zinc-500">
-                    <Sparkles className="size-4 text-violet-400" />
-                    AI Tip for Clarity
-                  </p>
-                  <p className="text-sm leading-6 text-zinc-300">
-                    {feedback
-                      ? feedback.feedback
-                      : 'Try to use more action-oriented verbs. Instead of saying “I am working on…”, try “I am developing…” or “I am integrating…”.'}
-                  </p>
-                  {error && <p className="mt-3 text-sm font-bold text-red-300">{error}</p>}
-                </div>
-
-                {feedback && (
-                  <div className="grid w-full gap-4 md:grid-cols-4">
-                    <div className="rounded-lg border border-zinc-800 bg-[#18191b] p-5">
-                      <p className="text-xs font-black uppercase text-zinc-400">Overall</p>
-                      <p className="mt-2 text-2xl font-black text-white">{scoreLabel(feedback)}</p>
-                    </div>
-                    {[
-                      ['Clarity', feedback.clarity, 'bg-violet-400'],
-                      ['Conciseness', feedback.conciseness, 'bg-orange-400'],
-                      ['Impact', feedback.impact, 'bg-teal-400'],
-                    ].map(([label, value, color]) => (
-                      <div key={label} className="rounded-lg border border-zinc-800 bg-[#18191b] p-5">
-                        <div className="flex justify-between text-xs font-black uppercase text-zinc-400">
-                          <span>{label}</span>
-                          <span>{value}/100</span>
-                        </div>
-                        <div className="mt-4 h-2 overflow-hidden rounded-full bg-zinc-900">
-                          <div className={`h-full rounded-full ${color}`} style={{ width: `${value}%` }} />
-                        </div>
-                      </div>
-                    ))}
+                {!feedback && (
+                  <div className="w-full rounded-lg border border-border bg-muted p-5">
+                    <p className="mb-3 flex items-center gap-2 text-sm font-black text-muted-foreground">
+                      <Sparkles className="size-4 text-foreground" />
+                      AI Tip for Clarity
+                    </p>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      Try to use more action-oriented verbs. Instead of saying “I am working on…”, try “I am developing…” or “I am integrating…”.
+                    </p>
+                    {error && <p className="mt-3 text-sm font-bold text-red-300">{error}</p>}
                   </div>
                 )}
 
-                <div className="flex items-center gap-3 text-xs font-bold text-zinc-500">
+                {feedback && (
+                  <div className="w-full space-y-6">
+                    <div className="rounded-lg border border-border bg-card p-5">
+                      <p className="text-xs font-black uppercase text-muted-foreground">Overall score</p>
+                      <p className="mt-2 text-3xl font-black text-foreground">
+                        {Math.round(feedback.overallScore)}
+                        <span className="text-base text-muted-foreground">/100</span>
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-foreground">{scoreLabel(feedback)}</p>
+                    </div>
+
+                    <article className="rounded-lg border border-border bg-muted p-5">
+                      <h3 className="text-sm font-black uppercase tracking-wide text-foreground">Summary</h3>
+                      <p className="mt-3 text-sm leading-6 text-muted-foreground">{feedback.summary}</p>
+                      {error && <p className="mt-3 text-sm font-bold text-red-300">{error}</p>}
+                    </article>
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <article className="rounded-lg border border-teal-500/25 bg-teal-500/5 p-5">
+                        <h3 className="text-sm font-black uppercase tracking-wide text-teal-300">Strengths</h3>
+                        <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                          {feedback.strengths.map((item) => <li key={item}>• {item}</li>)}
+                        </ul>
+                      </article>
+                      <article className="rounded-lg border border-orange-500/25 bg-orange-500/5 p-5">
+                        <h3 className="text-sm font-black uppercase tracking-wide text-orange-300">Improvements</h3>
+                        <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                          {feedback.improvements.map((item) => <li key={item}>• {item}</li>)}
+                        </ul>
+                      </article>
+                    </div>
+
+                    <article className="rounded-lg border border-border bg-card p-6">
+                      <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-foreground">
+                        <Sparkles className="size-4" /> Improved Answer
+                      </h3>
+                      <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-foreground">{feedback.improvedAnswer}</p>
+                      {feedback.nextExercise && <p className="mt-4 border-t border-border pt-4 text-xs text-muted-foreground">Next: {feedback.nextExercise}</p>}
+                    </article>
+
+                    <div className="flex flex-col justify-center gap-3 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={() => loadAnswerIntoForm(standupFieldsFromTranscript(feedback.improvedAnswer))}
+                        className="inline-flex items-center gap-2 rounded-lg border border-border px-6 py-3 text-sm font-black text-foreground hover:bg-muted disabled:opacity-50"
+                      >
+                        <RefreshCcw className="size-4" />
+                        Use improved answer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFeedback(null);
+                          clientRequestIdRef.current = null;
+                          setTimeout(() => fieldsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+                        }}
+                        className="inline-flex items-center gap-2 rounded-lg border border-border px-6 py-3 text-sm font-black text-foreground hover:border-foreground"
+                      >
+                        <RefreshCcw className="size-4" />
+                        Edit and try again
+                      </button>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      {[
+                        ['Clarity', feedback.categoryScores.clarity, 'bg-primary'],
+                        ['Conciseness', feedback.categoryScores.conciseness, 'bg-orange-400'],
+                        ['Impact', feedback.categoryScores.impact, 'bg-teal-400'],
+                      ].map(([label, value, color]) => (
+                        <div key={label} className="rounded-lg border border-border bg-card p-5">
+                          <div className="flex justify-between text-xs font-black uppercase text-muted-foreground">
+                            <span>{label}</span>
+                            <span>{value}/100</span>
+                          </div>
+                          <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
+                            <div className={`h-full rounded-full ${color}`} style={{ width: `${value}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <section className="w-full rounded-lg border border-border bg-card p-6">
+                  <h2 className="flex items-center gap-2 text-lg font-black text-foreground">
+                    <History className="size-5 text-foreground" /> Previous Attempts
+                  </h2>
+                  {attemptsLoading ? (
+                    <p className="mt-4 text-sm text-muted-foreground">Loading attempts...</p>
+                  ) : attempts.length === 0 ? (
+                    <p className="mt-4 text-sm text-muted-foreground">
+                      No attempts yet. Submit your first stand-up to start tracking progress.
+                    </p>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {attempts.map((attempt) => (
+                        <details key={attempt.id} className="rounded-md border border-border bg-background/30 p-4">
+                          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold">
+                            <span>{new Date(attempt.createdAt).toLocaleString()}</span>
+                            <span className={attempt.status === 'completed' ? 'text-teal-300' : attempt.status === 'failed' ? 'text-red-300' : 'text-orange-300'}>
+                              {attempt.evaluation ? `${Math.round(attempt.evaluation.overallScore)}/100` : attempt.status}
+                            </span>
+                          </summary>
+                          <div className="mt-4 space-y-3 border-t border-border pt-4 text-sm text-muted-foreground">
+                            {attempt.answer && (
+                              <div className="space-y-1 text-muted-foreground">
+                                <p><strong className="text-foreground">Yesterday:</strong> {attempt.answer.yesterday || 'Not provided'}</p>
+                                <p><strong className="text-foreground">Today:</strong> {attempt.answer.today || 'Not provided'}</p>
+                                <p><strong className="text-foreground">Blockers:</strong> {attempt.answer.blockers || 'None'}</p>
+                              </div>
+                            )}
+                            {attempt.evaluation && (
+                              <>
+                                <p>{attempt.evaluation.summary}</p>
+                                <p className="text-foreground"><strong>Improved:</strong> {attempt.evaluation.improvedAnswer}</p>
+                              </>
+                            )}
+                            {attempt.status === 'failed' && !attempt.evaluation && (
+                              <p className="text-red-300">
+                                This evaluation failed. Load the answer and submit it as a new attempt when ready.
+                              </p>
+                            )}
+                            {attempt.answer && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (attempt.answer) loadAnswerIntoForm(attempt.answer);
+                                }}
+                                className="rounded-md border border-border px-4 py-2 text-xs font-black text-foreground hover:border-foreground"
+                              >
+                                Load into form
+                              </button>
+                            )}
+                          </div>
+                        </details>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <div className="flex items-center gap-3 text-xs font-bold text-muted-foreground">
                   <Timer className="size-4" />
                   {totalWords} total words prepared for this stand-up
                 </div>
               </div>
             </section>
           </div>
-
-          <footer className="flex flex-col gap-3 border-t border-zinc-800 px-5 py-5 text-xs text-zinc-400 lg:flex-row lg:items-center lg:justify-between lg:px-10">
-            <span>© 2024 DevSpeak AI • System Status: Operational</span>
-            <div className="flex gap-6">
-              <span>Documentation</span>
-              <span>API Reference</span>
-              <span>Privacy Policy</span>
-            </div>
-          </footer>
-        </section>
-      </div>
-    </main>
+    </div>
   );
 }
